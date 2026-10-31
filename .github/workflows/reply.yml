@@ -1,0 +1,24 @@
+name: Reply
+
+on:
+  repository_dispatch:
+    types: [reply]
+
+permissions:
+  contents: read
+
+jobs:
+  reply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code@2.1.316
+      - name: Run the job
+        env:
+          JOB_ID: ${{ github.event.client_payload.job }}
+          WORKER_URL: ${{ secrets.WORKER_URL }}
+          JOB_SECRET: ${{ secrets.JOB_SECRET }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: node reply.mjs
