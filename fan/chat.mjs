@@ -22,6 +22,10 @@ export function reactedTo(m) {
 export const answeredSince = (newestFirst, fanUuid, at) =>
   newestFirst.some((m) => !isAutomatedOrBroadcast(m) && m.sender.uuid !== fanUuid && Date.parse(m.sentAt) > at);
 
+/** A free photo from her (not automated) sent after `at`: the gift for a purchase already went out. */
+export const freePhotoSince = (newestFirst, fanUuid, at) =>
+  newestFirst.some((m) => !isAutomatedOrBroadcast(m) && m.sender.uuid !== fanUuid && m.hasMedia && !m.pricing && Date.parse(m.sentAt) > at);
+
 // A tip shows as [tip] so Claude sees it even when he typed nothing with it.
 const messageText = (m) =>
   m.type === "TIP" ? (m.text ? `${m.text} [tip]` : "[tip]") : (m.text ?? (m.hasMedia ? "[slika]" : ""));

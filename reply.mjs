@@ -3,7 +3,7 @@
 // Never print the job, the chat or Claude's output: this log is public.
 import { createApi } from "./fan/api.mjs";
 import { runAgent, runFilter } from "./fan/claude.mjs";
-import { answeredSince, isHandedOver, needsReply, newCreatorMessages, newFanMessages, newestPersonal, reactedTo, researchNeedsReply, stillNewest } from "./fan/chat.mjs";
+import { answeredSince, freePhotoSince, isHandedOver, needsReply, newCreatorMessages, newFanMessages, newestPersonal, reactedTo, researchNeedsReply, stillNewest } from "./fan/chat.mjs";
 import { startToolServer } from "./fan/mcp.mjs";
 import { JobTools, RESEARCH_TOOLS, TOOLS } from "./fan/tools.mjs";
 
@@ -87,7 +87,7 @@ if (jobRes.status === 404) {
     const newest = messages[0];
     const hersNewest = newestPersonal(messages);
     // A tip is thanked unless a person has answered him since; a thank-you is never a follow-up.
-    const thanks = !!job.tip && !answeredSince(messages, fanUuid, job.tip.at);
+    const thanks = !!job.tip && (job.tip.purchase ? !freePhotoSince(messages, fanUuid, job.tip.at) : !answeredSince(messages, fanUuid, job.tip.at));
     // His reaction is answered only when it was to her newest message and he wrote nothing.
     const reaction =
       !wrote && !thanks && job.reaction && hersNewest && hersNewest.sender.uuid !== fanUuid && hersNewest.uuid === job.reaction.messageUuid
