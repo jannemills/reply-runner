@@ -89,10 +89,10 @@ export const TOOLS = [
   {
     name: "send_moment_photos",
     description:
-      "Proof that you are really there right now: sends him ALL the photos of the vault folder \"in the moment\" at once, free, in one message with a short casual line. Use it only when he doubts you or does not believe you, or when you want to make sure he believes you. They were taken on the back seat of a taxi, but you are not always in one: use this to show your present state and only when it does not contradict what you already told him in this chat (for example that you are home); then keep the line neutral and do not mention a taxi. Not a sell move: no price, nothing about what is in them.",
+      "Proof that you are really there right now: sends him ALL the photos of the vault folder \"in the moment\" at once, free, in one message with a short casual line (one or two playful words are best, like \"trenutnooo\"). Use it when he doubts you or does not believe you, when you want to make sure he believes you, or in the flirt phase as a free live \"right now\" moment when he is warm and flirting. They were taken on the back seat of a taxi, but you are not always in one: use this to show your present state and only when it does not contradict what you already told him in this chat (for example that you are home); then keep the line neutral and do not mention a taxi. Not a sell move: no price, nothing about what is in them.",
     inputSchema: {
       type: "object",
-      properties: { text: { type: "string", description: "One short casual line, no price." } },
+      properties: { text: { type: "string", description: "One or two playful words or a short casual line, no price." } },
       required: ["text"],
       additionalProperties: false,
     },
