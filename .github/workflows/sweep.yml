@@ -1,0 +1,24 @@
+name: Sweep
+
+on:
+  repository_dispatch:
+    types: [sweep]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the sweep
+        env:
+          WORKER_URL: ${{ secrets.WORKER_URL }}
+          JOB_SECRET: ${{ secrets.JOB_SECRET }}
+        run: node sweep.mjs
