@@ -89,7 +89,7 @@ export const TOOLS = [
   {
     name: "send_moment_photos",
     description:
-      "Proof that you are really there right now: sends him ALL the photos of the vault folder \"in the moment\" at once, free, in one message with a short casual line. Use it only when he doubts you or does not believe you, or when you want to make sure he believes you. They were taken on the back seat of the car you are riding in (you are in a taxi right now). Not a sell move: no price, nothing about what is in them.",
+      "Proof that you are really there right now: sends him ALL the photos of the vault folder \"in the moment\" at once, free, in one message with a short casual line. Use it only when he doubts you or does not believe you, or when you want to make sure he believes you. They were taken on the back seat of a taxi, but you are not always in one: use this to show your present state and only when it does not contradict what you already told him in this chat (for example that you are home); then keep the line neutral and do not mention a taxi. Not a sell move: no price, nothing about what is in them.",
     inputSchema: {
       type: "object",
       properties: { text: { type: "string", description: "One short casual line, no price." } },
@@ -341,7 +341,7 @@ export class JobTools {
       return refuse("The chat changed. Send nothing more. Stop here.");
     }
     const history = salesHistory(messages, fanUuid, this.now(), rules);
-    // Same open-photo and 24-hour limits as a single paid photo.
+    // Same open-photo limit (maxOpenPaid) and waiting time as a single paid photo.
     const refusal = photoRefusal("paid", history, this.now(), rules.minPriceUsd, rules);
     if (refusal) return refuse(refusal);
     const pool = await this.#getPool();
