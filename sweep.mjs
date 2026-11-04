@@ -17,13 +17,15 @@ if (res.status === 404) {
   const api = createApi(ctx.token);
   const result = {};
   const skip = new Set([...ctx.excluded, ...ctx.skip]);
+  const allowed = new Set(ctx.allowed ?? []); // test mode: when set, only these fans are answered and listed
+  const inScope = (fan) => !allowed.size || allowed.has(fan);
   const retry = new Set(ctx.retry);
 
   try {
     const waiting = await api.listUnansweredFans();
     result.candidates = [];
     for (const fan of waiting) {
-      if (skip.has(fan)) continue;
+      if (skip.has(fan) || !inScope(fan)) continue;
       const newest = newestPersonal(await api.fetchMessages(fan));
       if (!newest || !needsReply([newest], fan)) continue;
       if (ctx.swept[fan] === newest.uuid && !retry.has(fan)) continue;
@@ -42,7 +44,7 @@ if (res.status === 404) {
 
   try {
     const excluded = new Set(ctx.excluded);
-    const missing = (await api.listAllFans()).filter((f) => !f.lists.includes(ctx.testListUuid) && !excluded.has(f.uuid)).map((f) => f.uuid);
+    const missing = (await api.listAllFans()).filter((f) => !f.lists.includes(ctx.testListUuid) && !excluded.has(f.uuid) && inScope(f.uuid)).map((f) => f.uuid);
     if (missing.length) await api.addToList(ctx.testListUuid, missing);
     result.listed = missing.length;
   } catch (err) {
