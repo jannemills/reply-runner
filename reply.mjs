@@ -5,7 +5,7 @@ import { createApi } from "./fan/api.mjs";
 import { runAgent, runFilter } from "./fan/claude.mjs";
 import { answeredSince, isHandedOver, needsReply, newFanMessages, newestPersonal, reactedTo, stillNewest } from "./fan/chat.mjs";
 import { startToolServer } from "./fan/mcp.mjs";
-import { JobTools, TOOLS } from "./fan/tools.mjs";
+import { JobTools, RESEARCH_TOOLS, TOOLS } from "./fan/tools.mjs";
 
 const { JOB_ID, WORKER_URL, JOB_SECRET } = process.env;
 if (!/^[0-9a-f-]{36}$/.test(JOB_ID ?? "")) throw new Error("bad job id");
@@ -35,11 +35,49 @@ if (jobRes.status === 404) {
     process.exitCode = 1;
   }
 
+  const gate = async () => {
+    try {
+      const res = await post("/may-send", {});
+      return res.ok ? await res.json() : { ok: false, reason: "Could not check. Stop here." };
+    } catch {
+      return { ok: false, reason: "Could not check. Stop here." };
+    }
+  };
+
+  // A creator we follow, chatted with as a customer (owner, 4 Nov 2026): no follow-ups, tips or reactions, four tools only.
+  async function research(messages, wrote) {
+    if (!wrote) return void (await post("", { done: true, skipped: "answered" }));
+    const verdict = await runFilter({
+      ...job.filter,
+      prompt: `<fan_messages>\n${newFanMessages(messages, fanUuid) || "(no new messages)"}\n</fan_messages>`,
+    });
+    if (verdict.verdict === "blocked") {
+      console.log("filter: blocked");
+      return void (await post("", { blocked: verdict.category }));
+    }
+    console.log("filter: safe");
+    const promptRes = await post("/prompt", {});
+    if (!promptRes.ok) throw new Error(`fetching the prompt failed: ${promptRes.status}`);
+    const agent = await promptRes.json();
+    const tools = new JobTools({
+      api, fanUuid, newestUuid: newestPersonal(messages).uuid, followUp: true, research: true,
+      sendAt: job.sendAt, rules: job.rules, usaListUuid: job.usaListUuid, gate,
+    });
+    const server = await startToolServer(tools, RESEARCH_TOOLS);
+    try {
+      await runAgent({ ...agent, toolNames: RESEARCH_TOOLS.map((t) => t.name), mcpUrl: server.url, mcpKey: server.key });
+    } finally {
+      server.close();
+    }
+    await post("", { done: true, followUp: true, ...tools.report() });
+  }
+
   async function reply() {
     if (isHandedOver(await api.getNotes(fanUuid))) return void (await post("", { done: true, skipped: "handed_over" }));
 
     const messages = await api.fetchMessages(fanUuid);
     const wrote = needsReply(messages, fanUuid);
+    if (job.research) return research(messages, wrote);
     const newest = messages[0];
     const hersNewest = newestPersonal(messages);
     // A tip is thanked unless a person has answered him since; a thank-you is never a follow-up.

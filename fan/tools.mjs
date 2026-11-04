@@ -3,6 +3,7 @@ import {
   belgradeNow,
   finalText,
   formatChat,
+  formatResearchChat,
   isHandedOver,
   mergeNotes,
   newestPersonal,
@@ -83,6 +84,9 @@ export const TOOLS = [
   { name: "stop_chat", description: "End this chat for good. Only when he may be under 18.", inputSchema: none },
 ];
 
+// Research chats with creators we follow: read, take notes, reply. Nothing that sells, hands over or touches lists.
+export const RESEARCH_TOOLS = TOOLS.filter((t) => ["read_chat", "read_memory", "save_memory", "send_reply"].includes(t.name));
+
 const DEFAULT_CHAT_MESSAGES = 30;
 const MAX_CHAT_MESSAGES = 200;
 const SALES_HISTORY_MESSAGES = 500;
@@ -115,8 +119,9 @@ export class JobTools {
    * @param {string} o.usaListUuid
    * @param {() => Promise<{ok: boolean, reason?: string}>} o.gate asks the Worker whether sending is still allowed (pause, daily cap)
    */
-  constructor({ api, fanUuid, newestUuid, followUp, thanks, noSale, sendAt, rules, usaListUuid, gate, sleep, now, random }) {
+  constructor({ api, fanUuid, newestUuid, followUp, thanks, noSale, research, sendAt, rules, usaListUuid, gate, sleep, now, random }) {
     this.api = api;
+    this.research = !!research;
     this.fanUuid = fanUuid;
     this.newestUuid = newestUuid;
     this.followUp = followUp;
@@ -137,10 +142,12 @@ export class JobTools {
   }
 
   async call(name, args) {
+    if (this.research && !RESEARCH_TOOLS.some((t) => t.name === name)) return refuse("Not available in this chat.");
     switch (name) {
       case "read_chat": {
         const wanted = Math.min(Math.max(Number(args.count) || DEFAULT_CHAT_MESSAGES, 1), MAX_CHAT_MESSAGES);
-        return ok(formatChat(await this.readChat(wanted), this.fanUuid, this.now()));
+        const chat = await this.readChat(wanted);
+        return ok(this.research ? formatResearchChat(chat, this.fanUuid) : formatChat(chat, this.fanUuid, this.now()));
       }
       case "read_memory":
         return ok(splitNotes(await this.api.getNotes(this.fanUuid)).memory || "No notes yet: this chat is new.");

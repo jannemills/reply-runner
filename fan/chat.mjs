@@ -46,6 +46,23 @@ export function formatChat(newestFirst, fanUuid, now) {
     .join("\n");
 }
 
+/** A research chat with a creator we follow: her paid media shows its price and whether it was unlocked. */
+function creatorLine(m) {
+  const kind = m.type && m.type !== "SINGLE_RECIPIENT" ? ` (${m.type.toLowerCase()})` : "";
+  if (!m.hasMedia) return `${m.text ?? ""}${kind}`;
+  const cents = m.pricing?.USD?.price;
+  const media = cents == null ? "[free media]" : m.purchasedAt ? `[paid media $${cents / 100}, unlocked]` : `[paid media $${cents / 100}, locked]`;
+  return `${m.text ? `${m.text} ` : ""}${media}${kind}`;
+}
+
+export function formatResearchChat(newestFirst, creatorUuid) {
+  return [...newestFirst]
+    .reverse()
+    .filter((m) => m.text || m.hasMedia)
+    .map((m) => (m.sender.uuid === creatorUuid ? `Creator: ${creatorLine(m)}` : `You: ${m.text ?? "[media]"}`))
+    .join("\n");
+}
+
 /** What the fan wrote since the last personal answer, oldest first. This is what the filter checks. */
 export function newFanMessages(newestFirst, fanUuid) {
   const lines = [];

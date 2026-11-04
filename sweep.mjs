@@ -21,9 +21,25 @@ if (res.status === 404) {
   const inScope = (fan) => !allowed.size || allowed.has(fan);
   const retry = new Set(ctx.retry);
 
+  result.candidates = [];
+  // Creators we follow and chat with as a customer (owner, 4 Nov 2026): checked one by one.
+  try {
+    for (const creator of ctx.research ?? []) {
+      const newest = newestPersonal(await api.fetchMessages(creator));
+      if (!newest || !needsReply([newest], creator)) continue;
+      if (ctx.swept[creator] === newest.uuid && !retry.has(creator)) continue;
+      result.candidates.push({ fan: creator, newest: newest.uuid });
+    }
+  } catch (err) {
+    result.error = `research: ${err.status ?? "failed"}`;
+  }
+
+  if (ctx.researchOnly) {
+    const posted = await fetch(`${WORKER_URL}/sweep`, { method: "POST", headers, body: JSON.stringify(result) });
+    console.log(`sweep posted: ${posted.status}, research only, ${result.candidates.length} waiting`);
+  } else {
   try {
     const waiting = await api.listUnansweredFans();
-    result.candidates = [];
     for (const fan of waiting) {
       if (skip.has(fan) || !inScope(fan)) continue;
       const newest = newestPersonal(await api.fetchMessages(fan));
@@ -32,7 +48,7 @@ if (res.status === 404) {
       result.candidates.push({ fan, newest: newest.uuid });
     }
   } catch (err) {
-    result.error = `catch-up: ${err.status ?? "failed"}`;
+    result.error ??= `catch-up: ${err.status ?? "failed"}`;
   }
 
   try {
@@ -70,4 +86,5 @@ if (res.status === 404) {
 
   const posted = await fetch(`${WORKER_URL}/sweep`, { method: "POST", headers, body: JSON.stringify(result) });
   console.log(`sweep posted: ${posted.status}, ${result.candidates?.length ?? 0} waiting, ${result.listed ?? 0} listed, ${result.online?.length ?? 0} online`);
+  }
 }
