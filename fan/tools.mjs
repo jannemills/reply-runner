@@ -108,16 +108,18 @@ export class JobTools {
    * @param {string} o.fanUuid
    * @param {string} o.newestUuid the newest personal message when the job began
    * @param {boolean} o.followUp
+   * @param {boolean} [o.thanks] this reply thanks him for a tip: no paid photo in it
    * @param {number} [o.sendAt] earliest time the first message may go out
    * @param {object} o.rules sales numbers from the Worker
    * @param {string} o.usaListUuid
    * @param {() => Promise<{ok: boolean, reason?: string}>} o.gate asks the Worker whether sending is still allowed (pause, daily cap)
    */
-  constructor({ api, fanUuid, newestUuid, followUp, sendAt, rules, usaListUuid, gate, sleep, now, random }) {
+  constructor({ api, fanUuid, newestUuid, followUp, thanks, sendAt, rules, usaListUuid, gate, sleep, now, random }) {
     this.api = api;
     this.fanUuid = fanUuid;
     this.newestUuid = newestUuid;
     this.followUp = followUp;
+    this.thanks = !!thanks;
     this.sendAt = sendAt;
     this.rules = rules;
     this.usaListUuid = usaListUuid;
@@ -247,6 +249,7 @@ export class JobTools {
     const { api, fanUuid, rules } = this;
     if (this.followUp) return refuse("No photos in a follow-up. Stop here.");
     const kind = args.kind === "paid" ? "paid" : "free";
+    if (this.thanks && kind === "paid") return refuse("No paid photo in a thank-you for his tip: the next offer waits until he flirts again. Stop here.");
     const priceUsd = args.price_usd === undefined ? undefined : Number(args.price_usd);
     if (isHandedOver(await api.getNotes(fanUuid))) return refuse("This chat is with a person. Stop here.");
     const gate = await this.gate();

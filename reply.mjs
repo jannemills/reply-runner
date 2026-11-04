@@ -3,7 +3,7 @@
 // Never print the job, the chat or Claude's output: this log is public.
 import { createApi } from "./fan/api.mjs";
 import { runAgent, runFilter } from "./fan/claude.mjs";
-import { isHandedOver, needsReply, newFanMessages, newestPersonal, stillNewest } from "./fan/chat.mjs";
+import { answeredSince, isHandedOver, needsReply, newFanMessages, newestPersonal, stillNewest } from "./fan/chat.mjs";
 import { startToolServer } from "./fan/mcp.mjs";
 import { JobTools, TOOLS } from "./fan/tools.mjs";
 
@@ -39,8 +39,10 @@ if (jobRes.status === 404) {
     if (isHandedOver(await api.getNotes(fanUuid))) return void (await post("", { done: true, skipped: "handed_over" }));
 
     const messages = await api.fetchMessages(fanUuid);
-    const followUp = !!job.followUpAfter && stillNewest(messages, job.followUpAfter);
-    if (!followUp && !needsReply(messages, fanUuid)) return void (await post("", { done: true, skipped: "answered" })); // someone answered him by hand
+    // A tip is thanked unless a person has answered him since; a thank-you is never a follow-up.
+    const thanks = !!job.tip && !answeredSince(messages, fanUuid, job.tip.at);
+    const followUp = !thanks && !!job.followUpAfter && stillNewest(messages, job.followUpAfter);
+    if (!followUp && !thanks && !needsReply(messages, fanUuid)) return void (await post("", { done: true, skipped: "answered" })); // someone answered him by hand
 
     const verdict = await runFilter({
       ...job.filter,
@@ -52,7 +54,7 @@ if (jobRes.status === 404) {
     }
     console.log("filter: safe");
 
-    const promptRes = await post("/prompt", { followUp });
+    const promptRes = await post("/prompt", { followUp, ...(thanks ? { thanks } : {}) });
     if (!promptRes.ok) throw new Error(`fetching the prompt failed: ${promptRes.status}`);
     const agent = await promptRes.json();
 
@@ -61,6 +63,7 @@ if (jobRes.status === 404) {
       fanUuid,
       newestUuid: newestPersonal(messages).uuid,
       followUp,
+      thanks,
       sendAt: followUp ? undefined : job.sendAt,
       rules: job.rules,
       usaListUuid: job.usaListUuid,

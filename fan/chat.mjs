@@ -11,7 +11,13 @@ export const needsReply = (newestFirst, fanUuid) => newestPersonal(newestFirst)?
 /** True when this message is still the newest of any kind: he, a person, an automation or a mass message all end the wait. */
 export const stillNewest = (newestFirst, uuid) => newestFirst[0]?.uuid === uuid;
 
-const messageText = (m) => m.text ?? (m.hasMedia ? "[slika]" : "");
+/** True when a person answered him after `at` (ms): a message of hers, not an automation or mass message, sent later. */
+export const answeredSince = (newestFirst, fanUuid, at) =>
+  newestFirst.some((m) => !isAutomatedOrBroadcast(m) && m.sender.uuid !== fanUuid && Date.parse(m.sentAt) > at);
+
+// A tip shows as [tip] so Claude sees it even when he typed nothing with it.
+const messageText = (m) =>
+  m.type === "TIP" ? (m.text ? `${m.text} [tip]` : "[tip]") : (m.text ?? (m.hasMedia ? "[slika]" : ""));
 
 /** Her line, with what she attached, so Claude knows a photo or paid photo went out even when it had a caption. */
 function ownLine(m, now) {
