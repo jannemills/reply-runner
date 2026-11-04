@@ -39,6 +39,18 @@ export function createApi(token, base = process.env.FAN_API_URL || "https://api.
       const res = await call(`/chats/${fanUuid}/messages?size=${PAGE_SIZE}&markAsRead=false${anchor}`);
       return (await res.json()).data;
     },
+    /**
+     * The text of his comment on her post (by comment id, else his newest one there), at most 500 characters, or null.
+     * Fanvue's comment shape is read loosely, so a field rename leaves the comment out instead of failing the job.
+     */
+    async postComment(postUuid, commentId, fanUuid) {
+      const body = await (await call(`/posts/${encodeURIComponent(postUuid)}/comments?size=${PAGE_SIZE}&page=1`)).json();
+      const comments = Array.isArray(body?.data) ? body.data : [];
+      const author = (c) => c?.user?.uuid ?? c?.author?.uuid ?? c?.actor?.uuid ?? c?.fan?.uuid ?? c?.userUuid;
+      const found = comments.find((c) => (c?.uuid ?? c?.id) === commentId) ?? comments.find((c) => author(c) === fanUuid);
+      const text = found?.text ?? found?.content ?? found?.comment ?? found?.comment_text;
+      return typeof text === "string" && text.trim() ? text.trim().slice(0, 500) : null;
+    },
     async getNotes(fanUuid) {
       return (await (await call(`/chats/${fanUuid}/notes`)).json()).notes;
     },

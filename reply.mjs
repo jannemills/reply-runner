@@ -10,6 +10,9 @@ import { JobTools, RESEARCH_TOOLS, TOOLS } from "./fan/tools.mjs";
 const { JOB_ID, WORKER_URL, JOB_SECRET } = process.env;
 if (!/^[0-9a-f-]{36}$/.test(JOB_ID ?? "")) throw new Error("bad job id");
 
+// A like or comment on her post gets a message only if she has not written to him in this long (no double texting).
+const ENGAGE_GAP_MS = 30 * 60_000;
+
 const jobUrl = `${WORKER_URL}/job/${JOB_ID}`;
 const headers = { "x-job-secret": JOB_SECRET, "Content-Type": "application/json" };
 
@@ -87,18 +90,24 @@ if (jobRes.status === 404) {
       !wrote && !thanks && job.reaction && hersNewest && hersNewest.sender.uuid !== fanUuid && hersNewest.uuid === job.reaction.messageUuid
         ? reactedTo(hersNewest)
         : null;
+    // He liked or commented on her post: one message while he is on her page, if he wrote nothing and she has not
+    // written to him in the last 30 minutes. In a chat where he never wrote, no photo.
+    const hersRecent = !!hersNewest && hersNewest.sender.uuid !== fanUuid && Date.now() - Date.parse(hersNewest.sentAt) < ENGAGE_GAP_MS;
+    const engaged = !wrote && !thanks && !reaction && job.engagement && !hersRecent ? job.engagement.kind : null;
+    const hasWritten = messages.some((m) => m.sender.uuid === fanUuid);
+    const comment = engaged === "comment" ? await api.postComment(job.engagement.postUuid, job.engagement.commentId, fanUuid).catch(() => null) : null;
     // He came back online: one easy message, only if he has written before, and her newest message of any kind
     // (mass messages and automations too) has gone unanswered for the quiet time.
     const quietMs = newest ? Date.now() - Date.parse(newest.sentAt) : 0;
     const reengage =
-      !wrote && !thanks && !reaction && !!job.reengage && !!newest && newest.sender.uuid !== fanUuid &&
+      !wrote && !thanks && !reaction && !engaged && !!job.reengage && !!newest && newest.sender.uuid !== fanUuid &&
       messages.some((m) => m.sender.uuid === fanUuid) && quietMs >= job.reengage.quietHours * 3600_000;
-    const followUp = !thanks && !reaction && !reengage && !!job.followUpAfter && stillNewest(messages, job.followUpAfter);
-    if (!wrote && !followUp && !thanks && !reaction && !reengage) return void (await post("", { done: true, skipped: "answered" })); // someone answered him by hand
+    const followUp = !thanks && !reaction && !engaged && !reengage && !!job.followUpAfter && stillNewest(messages, job.followUpAfter);
+    if (!wrote && !followUp && !thanks && !reaction && !engaged && !reengage) return void (await post("", { done: true, skipped: "answered" })); // someone answered him by hand
 
     const verdict = await runFilter({
       ...job.filter,
-      prompt: `<fan_messages>\n${newFanMessages(messages, fanUuid) || "(no new messages)"}\n</fan_messages>`,
+      prompt: `<fan_messages>\n${[newFanMessages(messages, fanUuid), comment && `(comment on her post) ${comment}`].filter(Boolean).join("\n") || "(no new messages)"}\n</fan_messages>`,
     });
     if (verdict.verdict === "blocked") {
       console.log("filter: blocked");
@@ -110,16 +119,19 @@ if (jobRes.status === 404) {
       followUp,
       ...(thanks ? { thanks } : {}),
       ...(reaction ? { reaction } : {}),
+      ...(engaged ? { engaged } : {}),
       ...(reengage ? { reengageDays: Math.max(1, Math.round(quietMs / 86_400_000)) } : {}),
     });
     if (!promptRes.ok) throw new Error(`fetching the prompt failed: ${promptRes.status}`);
     const agent = await promptRes.json();
+    // His comment goes to the model here, never through the Worker.
+    if (comment) agent.prompt = `${agent.prompt}\n\n<his_comment>\n${comment}\n</his_comment>`;
 
     const tools = new JobTools({
       api,
       fanUuid,
-      newestUuid: newestPersonal(messages).uuid,
-      followUp: followUp || reengage, // no photos in either
+      newestUuid: newestPersonal(messages)?.uuid,
+      followUp: followUp || reengage || (!!engaged && !hasWritten), // no photos in these
       thanks,
       noSale: !!job.noSale,
       sendAt: followUp ? undefined : job.sendAt,
@@ -140,7 +152,7 @@ if (jobRes.status === 404) {
     } finally {
       server.close();
     }
-    // A message after a quiet spell earns no follow-up, like a follow-up itself.
-    await post("", { done: true, followUp: followUp || reengage, ...tools.report() });
+    // A message after a quiet spell or on a like or comment earns no follow-up, like a follow-up itself.
+    await post("", { done: true, followUp: followUp || reengage || !!engaged, ...tools.report() });
   }
 }
