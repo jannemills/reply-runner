@@ -55,6 +55,19 @@ function creatorLine(m) {
   return `${m.text ? `${m.text} ` : ""}${media}${kind}`;
 }
 
+/** A research chat waits for us when its newest message of any kind is hers: her mass pitches count too (owner, 4 Nov 2026). */
+export const researchNeedsReply = (newestFirst, creatorUuid) => newestFirst[0]?.sender.uuid === creatorUuid;
+
+/** What she sent since our last message, mass messages included, oldest first. This is what the filter checks. */
+export function newCreatorMessages(newestFirst, creatorUuid) {
+  const lines = [];
+  for (const m of newestFirst) {
+    if (m.sender.uuid !== creatorUuid) break;
+    if (m.text) lines.unshift(m.text);
+  }
+  return lines.join("\n");
+}
+
 export function formatResearchChat(newestFirst, creatorUuid) {
   return [...newestFirst]
     .reverse()

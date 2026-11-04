@@ -3,7 +3,7 @@
 // unanswered), who supports the account, and it keeps the custom list of answered fans complete.
 // Never print ids or errors: this log is public.
 import { createApi } from "./fan/api.mjs";
-import { needsReply, newestPersonal } from "./fan/chat.mjs";
+import { needsReply, newestPersonal, researchNeedsReply } from "./fan/chat.mjs";
 
 const { WORKER_URL, JOB_SECRET } = process.env;
 const headers = { "x-job-secret": JOB_SECRET, "Content-Type": "application/json" };
@@ -27,8 +27,9 @@ if (res.status === 404) {
     const found = await api.listCreatorChats().catch(() => new Set());
     result.creators = [...found];
     for (const creator of new Set([...(ctx.research ?? []), ...found])) {
-      const newest = newestPersonal(await api.fetchMessages(creator));
-      if (!newest || !needsReply([newest], creator)) continue;
+      const messages = await api.fetchMessages(creator);
+      if (!researchNeedsReply(messages, creator)) continue;
+      const newest = messages[0];
       if (ctx.swept[creator] === newest.uuid && !retry.has(creator)) continue;
       result.candidates.push({ fan: creator, newest: newest.uuid });
     }

@@ -35,7 +35,11 @@ export function createApi(token, base = process.env.FAN_API_URL || "https://api.
   return {
     /** Owner, 4 Nov 2026: every creator account in the chats is a research chat. Uuids only. */
     // The "creators" smart list is not a reliable filter (it returned fans too), so each chat's own isCreator decides.
-    listCreatorChats: async () => new Set((await pages("/chats?smartListIds=creators", 10)).filter((chat) => chat.isCreator === true).map((chat) => chat.user.uuid)),
+    // Archived chats are not in the normal list, and many creators sit there (owner, 4 Nov 2026), so both are read.
+    async listCreatorChats() {
+      const [active, archived] = await Promise.all([pages("/chats?smartListIds=creators", 10), pages("/chats?filter=archived", 10)]);
+      return new Set([...active, ...archived].filter((chat) => chat.isCreator === true).map((chat) => chat.user.uuid));
+    },
     /** True when the other side of this chat is a creator account. */
     async isCreator(userUuid) {
       const body = await (await call(`/chats?userUuids=${userUuid}&size=1`)).json();

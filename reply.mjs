@@ -3,7 +3,7 @@
 // Never print the job, the chat or Claude's output: this log is public.
 import { createApi } from "./fan/api.mjs";
 import { runAgent, runFilter } from "./fan/claude.mjs";
-import { answeredSince, isHandedOver, needsReply, newFanMessages, newestPersonal, reactedTo, stillNewest } from "./fan/chat.mjs";
+import { answeredSince, isHandedOver, needsReply, newCreatorMessages, newFanMessages, newestPersonal, reactedTo, researchNeedsReply, stillNewest } from "./fan/chat.mjs";
 import { startToolServer } from "./fan/mcp.mjs";
 import { JobTools, RESEARCH_TOOLS, TOOLS } from "./fan/tools.mjs";
 
@@ -53,7 +53,7 @@ if (jobRes.status === 404) {
     if (!wrote) return void (await post("", { done: true, skipped: "answered" }));
     const verdict = await runFilter({
       ...job.filter,
-      prompt: `<fan_messages>\n${newFanMessages(messages, fanUuid) || "(no new messages)"}\n</fan_messages>`,
+      prompt: `<fan_messages>\n${newCreatorMessages(messages, fanUuid) || "(no new messages)"}\n</fan_messages>`,
     });
     if (verdict.verdict === "blocked") {
       console.log("filter: blocked");
@@ -64,7 +64,7 @@ if (jobRes.status === 404) {
     if (!promptRes.ok) throw new Error(`fetching the prompt failed: ${promptRes.status}`);
     const agent = await promptRes.json();
     const tools = new JobTools({
-      api, fanUuid, newestUuid: newestPersonal(messages).uuid, followUp: true, research: true,
+      api, fanUuid, newestUuid: newestPersonal(messages)?.uuid, followUp: true, research: true,
       sendAt: job.sendAt, rules: job.rules, usaListUuid: job.usaListUuid, gate,
     });
     const server = await startToolServer(tools, RESEARCH_TOOLS);
@@ -83,7 +83,7 @@ if (jobRes.status === 404) {
 
     const messages = await api.fetchMessages(fanUuid);
     const wrote = needsReply(messages, fanUuid);
-    if (job.research) return research(messages, wrote);
+    if (job.research) return research(messages, researchNeedsReply(messages, fanUuid));
     const newest = messages[0];
     const hersNewest = newestPersonal(messages);
     // A tip is thanked unless a person has answered him since; a thank-you is never a follow-up.
