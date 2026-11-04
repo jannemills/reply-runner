@@ -71,6 +71,17 @@ export const TOOLS = [
     },
   },
   {
+    name: "send_moment_photos",
+    description:
+      "Proof that you are really there right now: sends him ALL the photos of the vault folder \"in the moment\" at once, free, in one message with a short casual line. Use it only when he doubts you or does not believe you, or when you want to make sure he believes you. They were taken on the back seat of the car you are riding in (you are in a taxi right now). Not a sell move: no price, nothing about what is in them.",
+    inputSchema: {
+      type: "object",
+      properties: { text: { type: "string", description: "One short casual line, no price." } },
+      required: ["text"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "ready_for_offer",
     description: "Tell the owner this fan is ready for a photo offer. Sends nothing to him. Only when you want to sell and send_photo is refused for lack of photos or none are available.",
     inputSchema: {
@@ -100,6 +111,7 @@ export class JobTools {
   replied = false;
   sentUuid = undefined; // the newest message we sent: it anchors the follow-up
   photoSent = false;
+  momentSent = false;
   wroteAgain = false;
   stopped = false;
   alerts = []; // { kind: "needs_person" | "offer", reason }
@@ -174,6 +186,8 @@ export class JobTools {
       }
       case "send_photo":
         return this.#exclusive("One photo per reply. Stop here.", () => this.#sendPhoto(args), this.photoSent);
+      case "send_moment_photos":
+        return this.#exclusive("Already sent. Stop here.", () => this.#sendMomentPhotos(args), this.momentSent);
       case "ready_for_offer":
         if (this.noSale) return refuse("He is sold nothing after a refund or chargeback. Keep the chat warm and friendly.");
         this.alerts.push({ kind: "offer", reason: String(args.reason ?? "") });
@@ -253,6 +267,36 @@ export class JobTools {
     const newest = (await this.api.fetchMessages(this.fanUuid).catch(() => []))[0];
     this.sentUuid = newest && newest.sender.uuid !== this.fanUuid ? newest.uuid : undefined;
     this.replied = true;
+  }
+
+  /** All photos of the vault folder "in the moment" in one free message, when he doubts she is real or there. */
+  async #sendMomentPhotos(args) {
+    const { api, fanUuid } = this;
+    if (this.followUp) return refuse("No photos in a follow-up. Stop here.");
+    if (isHandedOver(await api.getNotes(fanUuid))) return refuse("This chat is with a person. Stop here.");
+    const gate = await this.gate();
+    if (!gate.ok) return refuse(gate.reason ?? "Not allowed now. Stop here.");
+    const text = finalText(String(args.text ?? ""));
+    if (!text || text.length > 200 || text.includes("\n"))
+      return refuse("Refused: one short line, at most 200 characters, no links, no mention of AI.");
+    const messages = await this.readChat(SALES_HISTORY_MESSAGES);
+    const anchor = this.replied ? this.sentUuid : this.newestUuid;
+    if (!anchor || newestPersonal(messages)?.uuid !== anchor) {
+      this.wroteAgain = true;
+      return refuse("The chat changed. Send nothing more. Stop here.");
+    }
+    const media = await api.listFolderMedia("in the moment").catch(() => []);
+    const uuids = media.filter((m) => m.status === "ready" && m.mediaType === "image").map((m) => m.uuid);
+    if (!uuids.length) return refuse("No such photos are available. Just answer in words.");
+    const sentBefore = new Set(messages.filter((m) => m.sender.uuid !== fanUuid).flatMap((m) => m.mediaUuids ?? []));
+    if (uuids.every((u) => sentBefore.has(u))) return refuse("He already got all of them in this chat. Do not send them again.");
+    if (this.replied) await this.sleep(typingDelayMs(text));
+    await api.sendPhotos(fanUuid, text, uuids);
+    const newest = (await api.fetchMessages(fanUuid).catch(() => []))[0];
+    if (newest && newest.sender.uuid !== fanUuid) this.sentUuid = newest.uuid;
+    this.replied = true;
+    this.momentSent = true;
+    return ok(`Sent ${uuids.length} photos.`);
   }
 
   async #sendPhoto(args) {

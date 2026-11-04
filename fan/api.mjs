@@ -82,6 +82,10 @@ export function createApi(token, base = process.env.FAN_API_URL || "https://api.
         body: JSON.stringify({ text, mediaUuids: [mediaUuid], ...(priceCents ? { price: priceCents } : {}) }),
       });
     },
+    /** Several photos in one free message. */
+    async sendPhotos(fanUuid, text, mediaUuids) {
+      await call(`/chats/${fanUuid}/message`, { method: "POST", body: JSON.stringify({ text, mediaUuids }) });
+    },
     async addToList(listUuid, userUuids) {
       for (let i = 0; i < userUuids.length; i += 100) {
         await call(`/chats/lists/custom/${listUuid}/members`, {
