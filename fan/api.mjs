@@ -33,6 +33,13 @@ export function createApi(token, base = process.env.FAN_API_URL || "https://api.
   const fansBy = async (query, maxPages) => new Set((await pages(`/chats?${query}`, maxPages)).map((chat) => chat.user.uuid));
 
   return {
+    /** Owner, 4 Nov 2026: every creator account in the chats is a research chat. Uuids only. */
+    listCreatorChats: () => fansBy("smartListIds=creators", 10),
+    /** True when the other side of this chat is a creator account. */
+    async isCreator(userUuid) {
+      const body = await (await call(`/chats?userUuids=${userUuid}&size=1`)).json();
+      return !!body.data?.[0]?.isCreator;
+    },
     /** One page, newest first. Pass the oldest uuid seen so far to get the page before it. */
     async fetchMessages(fanUuid, before) {
       const anchor = before ? `&beforeMessageUuid=${before}` : "";

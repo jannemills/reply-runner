@@ -24,7 +24,9 @@ if (res.status === 404) {
   result.candidates = [];
   // Creators we follow and chat with as a customer (owner, 4 Nov 2026): checked one by one.
   try {
-    for (const creator of ctx.research ?? []) {
+    const found = await api.listCreatorChats().catch(() => new Set());
+    result.creators = [...found];
+    for (const creator of new Set([...(ctx.research ?? []), ...found])) {
       const newest = newestPersonal(await api.fetchMessages(creator));
       if (!newest || !needsReply([newest], creator)) continue;
       if (ctx.swept[creator] === newest.uuid && !retry.has(creator)) continue;

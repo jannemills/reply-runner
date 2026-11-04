@@ -77,6 +77,8 @@ if (jobRes.status === 404) {
   }
 
   async function reply() {
+    // Owner, 4 Nov 2026: a creator account is never answered as a fan; the Worker re-queues it as a research chat.
+    if (!job.research && (await api.isCreator(fanUuid).catch(() => false))) return void (await post("", { done: true, skipped: "creator", creator: true }));
     if (isHandedOver(await api.getNotes(fanUuid))) return void (await post("", { done: true, skipped: "handed_over" }));
 
     const messages = await api.fetchMessages(fanUuid);
