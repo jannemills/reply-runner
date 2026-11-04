@@ -34,7 +34,8 @@ export function createApi(token, base = process.env.FAN_API_URL || "https://api.
 
   return {
     /** Owner, 4 Nov 2026: every creator account in the chats is a research chat. Uuids only. */
-    listCreatorChats: () => fansBy("smartListIds=creators", 10),
+    // The "creators" smart list is not a reliable filter (it returned fans too), so each chat's own isCreator decides.
+    listCreatorChats: async () => new Set((await pages("/chats?smartListIds=creators", 10)).filter((chat) => chat.isCreator === true).map((chat) => chat.user.uuid)),
     /** True when the other side of this chat is a creator account. */
     async isCreator(userUuid) {
       const body = await (await call(`/chats?userUuids=${userUuid}&size=1`)).json();
