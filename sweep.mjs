@@ -42,15 +42,32 @@ if (res.status === 404) {
     result.error ??= `supporters: ${err.status ?? "failed"}`;
   }
 
+  const excluded = new Set(ctx.excluded);
+  let allFans = null;
   try {
-    const excluded = new Set(ctx.excluded);
-    const missing = (await api.listAllFans()).filter((f) => !f.lists.includes(ctx.testListUuid) && !excluded.has(f.uuid) && inScope(f.uuid)).map((f) => f.uuid);
+    allFans = await api.listAllFans();
+    const missing = allFans.filter((f) => !f.lists.includes(ctx.testListUuid) && !excluded.has(f.uuid) && inScope(f.uuid)).map((f) => f.uuid);
     if (missing.length) await api.addToList(ctx.testListUuid, missing);
     result.listed = missing.length;
   } catch (err) {
     result.error ??= `list sync: ${err.status ?? "failed"}`;
   }
 
+  // Who is online now (owner, 4 Nov 2026): the Worker sends a waiting follow-up the moment he comes online and may write
+  // to him after a quiet spell. Polled here because presence webhooks may never arrive. Offline is reported only for the
+  // fans the Worker watches.
+  try {
+    const fans = allFans ? allFans.map((f) => f.uuid).filter((f) => !excluded.has(f) && inScope(f)) : [];
+    if (fans.length) {
+      const { online, offline } = await api.onlineStatuses(fans);
+      const watch = new Set(ctx.watch ?? []);
+      result.online = online;
+      result.offline = offline.filter((f) => watch.has(f));
+    }
+  } catch (err) {
+    result.error ??= `online: ${err.status ?? "failed"}`;
+  }
+
   const posted = await fetch(`${WORKER_URL}/sweep`, { method: "POST", headers, body: JSON.stringify(result) });
-  console.log(`sweep posted: ${posted.status}, ${result.candidates?.length ?? 0} waiting, ${result.listed ?? 0} listed`);
+  console.log(`sweep posted: ${posted.status}, ${result.candidates?.length ?? 0} waiting, ${result.listed ?? 0} listed, ${result.online?.length ?? 0} online`);
 }

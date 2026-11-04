@@ -76,6 +76,22 @@ export function createApi(token, base = process.env.FAN_API_URL || "https://api.
       const chats = await pages("/chats?filter=exclude_creators", 20);
       return chats.map((chat) => ({ uuid: chat.user.uuid, lists: (chat.customLists ?? []).map((l) => l.uuid) }));
     },
+    /**
+     * Who of these fans is online now, 100 per call. Fans who hide their status read as offline with no lastSeenAt, so
+     * they are left out of `offline`: a follow-up is never held for someone whose status cannot be seen.
+     */
+    async onlineStatuses(userUuids) {
+      const online = [];
+      const offline = [];
+      for (let i = 0; i < userUuids.length; i += 100) {
+        const body = await (await call("/chats/statuses", { method: "POST", body: JSON.stringify({ userUuids: userUuids.slice(i, i + 100) }) })).json();
+        for (const [uuid, status] of Object.entries(body ?? {})) {
+          if (status?.isOnline) online.push(uuid);
+          else if (status?.lastSeenAt) offline.push(uuid);
+        }
+      }
+      return { online, offline };
+    },
     async getFanInsights(fanUuid) {
       return (await call(`/insights/fans/${fanUuid}`)).json();
     },
