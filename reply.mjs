@@ -38,14 +38,15 @@ if (jobRes.status === 404) {
     process.exitCode = 1;
   }
 
-  const gate = async () => {
+  // A function declaration, so it exists before reply() runs.
+  async function gate() {
     try {
       const res = await post("/may-send", {});
       return res.ok ? await res.json() : { ok: false, reason: "Could not check. Stop here." };
     } catch {
       return { ok: false, reason: "Could not check. Stop here." };
     }
-  };
+  }
 
   // A creator we follow, chatted with as a customer (owner, 4 Nov 2026): no follow-ups, tips or reactions, four tools only.
   async function research(messages, wrote) {
