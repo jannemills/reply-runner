@@ -16,15 +16,30 @@ export function poolFrom(media, skip) {
 
 /** The photos the sell phase may use: ready images in the vault folders "free" and "ppv", minus the "AI Images" folder. */
 export async function buildPool(api) {
-  const [free, ppv, ai, posted, scheduled] = await Promise.all([
+  const [free, ppv, preview, ai, posted, scheduled] = await Promise.all([
     api.listFolderMedia("free"),
     api.listFolderMedia("ppv"),
+    api.listFolderMedia("preview").catch(() => []),
     api.listFolderMedia("AI Images"),
     api.listPostedMedia(),
     api.listScheduledMassMedia(),
   ]);
   const skip = new Set([...ai.map((m) => m.uuid), ...posted, ...scheduled]);
-  return { free: poolFrom(free, skip), ppv: poolFrom(ppv, skip) };
+  return { free: poolFrom(free, skip), ppv: poolFrom(ppv, skip), preview: poolFrom(preview, skip) };
+}
+
+/** A pack for one paid message: one random unseen free preview from "preview" plus `count` random unseen photos from "ppv". Null when too few are left. */
+export function pickPack(pool, h, count, nude, random) {
+  const unseen = (list) => list.filter((p) => !h.seen.has(p.uuid));
+  const previews = unseen(pool.preview ?? []);
+  let rest = unseen(pool.ppv);
+  if (!previews.length || rest.length < count) return null;
+  if (nude && rest.filter((p) => p.nude).length >= count) rest = rest.filter((p) => p.nude);
+  const preview = previews[Math.floor(random() * previews.length)].uuid;
+  const left = [...rest];
+  const photos = [];
+  while (photos.length < count) photos.push(left.splice(Math.floor(random() * left.length), 1)[0].uuid);
+  return { preview, photos };
 }
 
 /** What photos this fan already got, from his chat (newest first). Mass messages that reached him count too. */

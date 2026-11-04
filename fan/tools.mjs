@@ -14,7 +14,7 @@ import {
   withReplyCount,
   withStopLine,
 } from "./chat.mjs";
-import { buildPool, photoRefusal, pickPhoto, profileText, salesHistory } from "./sales.mjs";
+import { buildPool, photoRefusal, pickPack, pickPhoto, profileText, salesHistory } from "./sales.mjs";
 
 const none = { type: "object", properties: {}, additionalProperties: false };
 
@@ -67,6 +67,22 @@ export const TOOLS = [
         nude: { type: "boolean", description: "True only if the chat already promised him a nude." },
       },
       required: ["kind", "text"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "send_ppv_pack",
+    description:
+      "Send him several paid photos in ONE message (2 to 6), with one extra photo shown to him free as the preview. All picked for you, unseen by him. Same limits as a paid send_photo (it counts as your photo for this reply). Price the whole pack: more photos, a higher price. It may be refused; the result says why.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        count: { type: "integer", minimum: 2, maximum: 6, description: "Paid photos in the pack, not counting the free preview." },
+        text: { type: "string", description: "One short line that says nothing about what is in the photos." },
+        price_usd: { type: "integer", minimum: 5, maximum: 40, description: "Price of the whole pack." },
+        nude: { type: "boolean", description: "True only if the chat already promised him a nude." },
+      },
+      required: ["count", "text", "price_usd"],
       additionalProperties: false,
     },
   },
@@ -186,6 +202,8 @@ export class JobTools {
       }
       case "send_photo":
         return this.#exclusive("One photo per reply. Stop here.", () => this.#sendPhoto(args), this.photoSent);
+      case "send_ppv_pack":
+        return this.#exclusive("One photo message per reply. Stop here.", () => this.#sendPack(args), this.photoSent);
       case "send_moment_photos":
         return this.#exclusive("Already sent. Stop here.", () => this.#sendMomentPhotos(args), this.momentSent);
       case "ready_for_offer":
@@ -297,6 +315,46 @@ export class JobTools {
     this.replied = true;
     this.momentSent = true;
     return ok(`Sent ${uuids.length} photos.`);
+  }
+
+  /** Several paid photos in one message with one free preview. Same gates as a paid photo; wider price range. */
+  async #sendPack(args) {
+    const { api, fanUuid, rules } = this;
+    if (this.followUp) return refuse("No photos in a follow-up. Stop here.");
+    if (this.noSale) return refuse("He is sold nothing after a refund or chargeback: no paid photo. Stop here.");
+    if (this.thanks) return refuse("No paid photo in a thank-you for his tip: the next offer waits until he flirts again. Stop here.");
+    const count = Number(args.count);
+    const priceUsd = Number(args.price_usd);
+    const maxPack = rules.packMaxPriceUsd ?? 40;
+    if (!Number.isInteger(count) || count < 2 || count > 6) return refuse("Choose 2 to 6 photos.");
+    if (!Number.isInteger(priceUsd) || priceUsd < 5 || priceUsd > maxPack) return refuse(`Choose a whole-dollar pack price from 5 to ${maxPack}.`);
+    if (isHandedOver(await api.getNotes(fanUuid))) return refuse("This chat is with a person. Stop here.");
+    const gate = await this.gate();
+    if (!gate.ok) return refuse(gate.reason ?? "Not allowed now. Stop here.");
+    const text = finalText(String(args.text ?? ""));
+    if (!text || text.length > 200 || text.includes("\n"))
+      return refuse("Refused: one short line, at most 200 characters, no links, no mention of AI.");
+    const messages = await this.readChat(SALES_HISTORY_MESSAGES);
+    const anchor = this.replied ? this.sentUuid : this.newestUuid;
+    if (!anchor || newestPersonal(messages)?.uuid !== anchor) {
+      this.wroteAgain = true;
+      return refuse("The chat changed. Send nothing more. Stop here.");
+    }
+    const history = salesHistory(messages, fanUuid, this.now(), rules);
+    // Same open-photo and 24-hour limits as a single paid photo.
+    const refusal = photoRefusal("paid", history, this.now(), rules.minPriceUsd, rules);
+    if (refusal) return refuse(refusal);
+    const pool = await this.#getPool();
+    const pack = pool && pickPack(pool, history, count, args.nude === true, this.random);
+    if (!pack) return refuse("Not enough unseen photos or previews for him. Send no pack; use send_photo or ready_for_offer instead.");
+
+    if (this.replied) await this.sleep(typingDelayMs(text));
+    await api.sendPpvPack(fanUuid, text, [pack.preview, ...pack.photos], pack.preview, priceUsd * 100);
+    const newest = (await api.fetchMessages(fanUuid).catch(() => []))[0];
+    if (newest && newest.sender.uuid !== fanUuid) this.sentUuid = newest.uuid;
+    this.replied = true;
+    this.photoSent = true;
+    return ok(`Pack of ${count} paid photos with a free preview sent at $${priceUsd}.`);
   }
 
   async #sendPhoto(args) {

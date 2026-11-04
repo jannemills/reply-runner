@@ -82,6 +82,13 @@ export function createApi(token, base = process.env.FAN_API_URL || "https://api.
         body: JSON.stringify({ text, mediaUuids: [mediaUuid], ...(priceCents ? { price: priceCents } : {}) }),
       });
     },
+    /** Several photos in one paid message (price in cents, minimum 300) with one free preview. */
+    async sendPpvPack(fanUuid, text, mediaUuids, previewUuid, priceCents) {
+      await call(`/chats/${fanUuid}/message`, {
+        method: "POST",
+        body: JSON.stringify({ text, mediaUuids, mediaPreviewUuid: previewUuid, price: priceCents }),
+      });
+    },
     /** Several photos in one free message. */
     async sendPhotos(fanUuid, text, mediaUuids) {
       await call(`/chats/${fanUuid}/message`, { method: "POST", body: JSON.stringify({ text, mediaUuids }) });
