@@ -3,7 +3,7 @@
 // Never print the job, the chat or Claude's output: this log is public.
 import { createApi } from "./fan/api.mjs";
 import { runAgent, runFilter } from "./fan/claude.mjs";
-import { answeredSince, isHandedOver, needsReply, newFanMessages, newestPersonal, stillNewest } from "./fan/chat.mjs";
+import { answeredSince, isHandedOver, needsReply, newFanMessages, newestPersonal, reactedTo, stillNewest } from "./fan/chat.mjs";
 import { startToolServer } from "./fan/mcp.mjs";
 import { JobTools, TOOLS } from "./fan/tools.mjs";
 
@@ -39,10 +39,24 @@ if (jobRes.status === 404) {
     if (isHandedOver(await api.getNotes(fanUuid))) return void (await post("", { done: true, skipped: "handed_over" }));
 
     const messages = await api.fetchMessages(fanUuid);
+    const wrote = needsReply(messages, fanUuid);
+    const newest = messages[0];
+    const hersNewest = newestPersonal(messages);
     // A tip is thanked unless a person has answered him since; a thank-you is never a follow-up.
     const thanks = !!job.tip && !answeredSince(messages, fanUuid, job.tip.at);
-    const followUp = !thanks && !!job.followUpAfter && stillNewest(messages, job.followUpAfter);
-    if (!followUp && !thanks && !needsReply(messages, fanUuid)) return void (await post("", { done: true, skipped: "answered" })); // someone answered him by hand
+    // His reaction is answered only when it was to her newest message and he wrote nothing.
+    const reaction =
+      !wrote && !thanks && job.reaction && hersNewest && hersNewest.sender.uuid !== fanUuid && hersNewest.uuid === job.reaction.messageUuid
+        ? reactedTo(hersNewest)
+        : null;
+    // He came back online: one easy message, only if he has written before, and her newest message of any kind
+    // (mass messages and automations too) has gone unanswered for the quiet time.
+    const quietMs = newest ? Date.now() - Date.parse(newest.sentAt) : 0;
+    const reengage =
+      !wrote && !thanks && !reaction && !!job.reengage && !!newest && newest.sender.uuid !== fanUuid &&
+      messages.some((m) => m.sender.uuid === fanUuid) && quietMs >= job.reengage.quietHours * 3600_000;
+    const followUp = !thanks && !reaction && !reengage && !!job.followUpAfter && stillNewest(messages, job.followUpAfter);
+    if (!wrote && !followUp && !thanks && !reaction && !reengage) return void (await post("", { done: true, skipped: "answered" })); // someone answered him by hand
 
     const verdict = await runFilter({
       ...job.filter,
@@ -54,7 +68,12 @@ if (jobRes.status === 404) {
     }
     console.log("filter: safe");
 
-    const promptRes = await post("/prompt", { followUp, ...(thanks ? { thanks } : {}) });
+    const promptRes = await post("/prompt", {
+      followUp,
+      ...(thanks ? { thanks } : {}),
+      ...(reaction ? { reaction } : {}),
+      ...(reengage ? { reengageDays: Math.max(1, Math.round(quietMs / 86_400_000)) } : {}),
+    });
     if (!promptRes.ok) throw new Error(`fetching the prompt failed: ${promptRes.status}`);
     const agent = await promptRes.json();
 
@@ -62,8 +81,9 @@ if (jobRes.status === 404) {
       api,
       fanUuid,
       newestUuid: newestPersonal(messages).uuid,
-      followUp,
+      followUp: followUp || reengage, // no photos in either
       thanks,
+      noSale: !!job.noSale,
       sendAt: followUp ? undefined : job.sendAt,
       rules: job.rules,
       usaListUuid: job.usaListUuid,
@@ -82,6 +102,7 @@ if (jobRes.status === 404) {
     } finally {
       server.close();
     }
-    await post("", { done: true, followUp, ...tools.report() });
+    // A message after a quiet spell earns no follow-up, like a follow-up itself.
+    await post("", { done: true, followUp: followUp || reengage, ...tools.report() });
   }
 }

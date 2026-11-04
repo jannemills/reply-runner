@@ -109,17 +109,19 @@ export class JobTools {
    * @param {string} o.newestUuid the newest personal message when the job began
    * @param {boolean} o.followUp
    * @param {boolean} [o.thanks] this reply thanks him for a tip: no paid photo in it
+   * @param {boolean} [o.noSale] he had a refund or chargeback: no paid photo and no offer
    * @param {number} [o.sendAt] earliest time the first message may go out
    * @param {object} o.rules sales numbers from the Worker
    * @param {string} o.usaListUuid
    * @param {() => Promise<{ok: boolean, reason?: string}>} o.gate asks the Worker whether sending is still allowed (pause, daily cap)
    */
-  constructor({ api, fanUuid, newestUuid, followUp, thanks, sendAt, rules, usaListUuid, gate, sleep, now, random }) {
+  constructor({ api, fanUuid, newestUuid, followUp, thanks, noSale, sendAt, rules, usaListUuid, gate, sleep, now, random }) {
     this.api = api;
     this.fanUuid = fanUuid;
     this.newestUuid = newestUuid;
     this.followUp = followUp;
     this.thanks = !!thanks;
+    this.noSale = !!noSale;
     this.sendAt = sendAt;
     this.rules = rules;
     this.usaListUuid = usaListUuid;
@@ -166,6 +168,7 @@ export class JobTools {
       case "send_photo":
         return this.#exclusive("One photo per reply. Stop here.", () => this.#sendPhoto(args), this.photoSent);
       case "ready_for_offer":
+        if (this.noSale) return refuse("He is sold nothing after a refund or chargeback. Keep the chat warm and friendly.");
         this.alerts.push({ kind: "offer", reason: String(args.reason ?? "") });
         return ok("Noted. Keep the chat going as normal and say nothing about a photo.");
       case "mark_english":
@@ -249,6 +252,7 @@ export class JobTools {
     const { api, fanUuid, rules } = this;
     if (this.followUp) return refuse("No photos in a follow-up. Stop here.");
     const kind = args.kind === "paid" ? "paid" : "free";
+    if (this.noSale && kind === "paid") return refuse("He is sold nothing after a refund or chargeback: no paid photo. Stop here.");
     if (this.thanks && kind === "paid") return refuse("No paid photo in a thank-you for his tip: the next offer waits until he flirts again. Stop here.");
     const priceUsd = args.price_usd === undefined ? undefined : Number(args.price_usd);
     if (isHandedOver(await api.getNotes(fanUuid))) return refuse("This chat is with a person. Stop here.");

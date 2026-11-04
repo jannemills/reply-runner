@@ -11,6 +11,13 @@ export const needsReply = (newestFirst, fanUuid) => newestPersonal(newestFirst)?
 /** True when this message is still the newest of any kind: he, a person, an automation or a mass message all end the wait. */
 export const stillNewest = (newestFirst, uuid) => newestFirst[0]?.uuid === uuid;
 
+/** What a message of hers was, in the Worker's fixed words, so a reaction to it can be named without its text. */
+export function reactedTo(m) {
+  if (!m.hasMedia) return "a message";
+  if (!m.pricing) return "a photo";
+  return m.purchasedAt ? "a paid photo he bought" : "a paid photo he has not opened";
+}
+
 /** True when a person answered him after `at` (ms): a message of hers, not an automation or mass message, sent later. */
 export const answeredSince = (newestFirst, fanUuid, at) =>
   newestFirst.some((m) => !isAutomatedOrBroadcast(m) && m.sender.uuid !== fanUuid && Date.parse(m.sentAt) > at);
