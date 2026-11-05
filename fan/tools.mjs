@@ -89,7 +89,7 @@ export const TOOLS = [
   {
     name: "send_moment_photos",
     description:
-      "Proof that you are really there right now: sends him ALL the photos of the vault folder \"in the moment\" at once, free, in one message with a short casual line (one or two playful words are best, like \"trenutnooo\"). Use it when he doubts you or does not believe you, when you want to make sure he believes you, or in the flirt phase as a free live \"right now\" moment when he is warm and flirting. They were taken on the back seat of a taxi, but you are not always in one: use this to show your present state and only when it does not contradict what you already told him in this chat (for example that you are home); then keep the line neutral and do not mention a taxi. Not a sell move: no price, nothing about what is in them.",
+      "Proof that you are really there right now: sends him the next live collection he has not had yet (all its photos at once, free, in one message; the collections are one scene at later and later points in time, so each new one shows you a bit later) with a short casual line (one or two playful words are best, like \"trenutnooo\"). Use it when he doubts you or does not believe you, when you want to make sure he believes you, or in the flirt phase as a free live \"right now\" moment when he is warm and flirting. They were taken on the back seat of a taxi, but you are not always in one: use this to show your present state and only when it does not contradict what you already told him in this chat (for example that you are home); then keep the line neutral and do not mention a taxi. Not a sell move: no price, nothing about what is in them. At most one collection per fan per day; it is refused if he had one in the last 24 hours.",
     inputSchema: {
       type: "object",
       properties: { text: { type: "string", description: "One or two playful words or a short casual line, no price." } },
@@ -119,6 +119,9 @@ const MAX_CHAT_MESSAGES = 200;
 const SALES_HISTORY_MESSAGES = 500;
 const MAX_HOLD_MS = 40_000; // under the Action's one-minute MCP tool timeout
 const PAGE_SIZE = 50;
+// One scene at successive points in time (owner, 6 Nov 2026): sent in this order, one collection at a time.
+export const MOMENT_FOLDERS = ["in the moment", "in the moment 1", "in the moment 2", "in the moment 3", "in the moment 4", "in the moment 5"];
+const MOMENT_GAP_MS = 24 * 60 * 60 * 1000;
 
 const ok = (text) => ({ text });
 const refuse = (text) => ({ text, isError: true });
@@ -287,7 +290,11 @@ export class JobTools {
     this.replied = true;
   }
 
-  /** All photos of the vault folder "in the moment" in one free message, when he doubts she is real or there. */
+  /**
+   * The next "in the moment" collection he has not had, all its photos in one free message. The folders are one scene at
+   * successive points in time, so they go out in order, one collection per send, never the same one twice and at most
+   * one per MOMENT_GAP_MS for a fan.
+   */
   async #sendMomentPhotos(args) {
     const { api, fanUuid } = this;
     if (this.followUp) return refuse("No photos in a follow-up. Stop here.");
@@ -303,11 +310,23 @@ export class JobTools {
       this.wroteAgain = true;
       return refuse("The chat changed. Send nothing more. Stop here.");
     }
-    const media = await api.listFolderMedia("in the moment").catch(() => []);
-    const uuids = media.filter((m) => m.status === "ready" && m.mediaType === "image").map((m) => m.uuid);
-    if (!uuids.length) return refuse("No such photos are available. Just answer in words.");
-    const sentBefore = new Set(messages.filter((m) => m.sender.uuid !== fanUuid).flatMap((m) => m.mediaUuids ?? []));
-    if (uuids.every((u) => sentBefore.has(u))) return refuse("He already got all of them in this chat. Do not send them again.");
+    const sentAt = new Map(); // media uuid -> when we sent it to him
+    for (const m of messages) if (m.sender.uuid !== fanUuid) for (const u of m.mediaUuids ?? []) sentAt.set(u, Date.parse(m.sentAt) || 0);
+    const folders = await Promise.all(
+      MOMENT_FOLDERS.map((name) =>
+        api
+          .listFolderMedia(name)
+          .then((media) => media.filter((m) => m.status === "ready" && m.mediaType === "image").map((m) => m.uuid))
+          .catch(() => []),
+      ),
+    );
+    const lastMoment = Math.max(0, ...folders.flat().map((u) => sentAt.get(u) ?? 0));
+    if (lastMoment && this.now() - lastMoment < MOMENT_GAP_MS)
+      return refuse("He got live photos less than a day ago. No more today: just answer in words.");
+    // Next in time order after the latest collection he already has.
+    const lastIndex = folders.findLastIndex((uuids) => uuids.some((u) => sentAt.has(u)));
+    const uuids = folders.slice(lastIndex + 1).find((f) => f.length);
+    if (!uuids) return refuse(lastIndex >= 0 ? "He already got every live collection. Do not send them again." : "No such photos are available. Just answer in words.");
     if (this.replied) await this.sleep(typingDelayMs(text));
     await api.sendPhotos(fanUuid, text, uuids);
     const newest = (await api.fetchMessages(fanUuid).catch(() => []))[0];
