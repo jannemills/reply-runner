@@ -89,10 +89,17 @@ export const TOOLS = [
   {
     name: "send_moment_photos",
     description:
-      "Sends him the next free photo set he has not had yet (all its photos at once, free, in one message) with a neutral caption. Use it when he doubts you, or in the flirt phase as a free warm-up when he is warm. The photos do not show the present moment: the caption never says now, trenutno, live, a place, a taxi or what you are doing, and never claims they are new or only for him. If he later asks whether they are from right now, say yes briefly, with no detail. Not a sell move: no price, nothing about what is in them. At most one set per fan per day; it is refused if he had one in the last 24 hours.",
+      "Sends him the next free photo set he has not had yet (all its photos at once, free, in one message) with a neutral caption. Use it when he doubts you, in the flirt phase as a free warm-up when he is warm, or with scene taxi or home when he asks you for a current photo. The photos do not show the present moment: the caption never says now, trenutno, live, a place, a taxi or what you are doing, and never claims they are new or only for him. If he later asks whether they are from right now, say yes briefly, with no detail. Not a sell move: no price, nothing about what is in them. At most one set per fan per day; it is refused if he had one in the last 24 hours.",
     inputSchema: {
       type: "object",
-      properties: { text: { type: "string", description: "A neutral playful word or two or an emoji. Nothing about time, place or what is in them, no price." } },
+      properties: {
+        text: { type: "string", description: "A neutral playful word or two or an emoji. Nothing about time, place or what is in them, no price." },
+        scene: {
+          type: "string",
+          enum: ["taxi", "home"],
+          description: "Only when he asked you for a current photo (\"posalji mi trenutnu\"): taxi sends the set taken in a taxi, home the set taken at home, if he has not had it. Leave out otherwise.",
+        },
+      },
       required: ["text"],
       additionalProperties: false,
     },
@@ -131,6 +138,8 @@ const SALES_HISTORY_MESSAGES = 500;
 const MAX_HOLD_MS = 40_000; // under the Action's one-minute MCP tool timeout
 const PAGE_SIZE = 50;
 // One scene at successive points in time (owner, 6 Nov 2026): sent in this order, one collection at a time.
+// Owner, 6 Nov 2026: "in the moment" was taken in a taxi, "in the moment 1" at home. Sent on request for a current photo.
+export const MOMENT_SCENES = { taxi: 0, home: 1 };
 export const MOMENT_FOLDERS = ["in the moment", "in the moment 1", "in the moment 2", "in the moment 3", "in the moment 4", "in the moment 5"];
 const MOMENT_GAP_MS = 24 * 60 * 60 * 1000;
 
@@ -344,13 +353,27 @@ export class JobTools {
           .catch(() => []),
       ),
     );
-    const lastMoment = Math.max(0, ...folders.flat().map((u) => sentAt.get(u) ?? 0));
-    if (lastMoment && this.now() - lastMoment < MOMENT_GAP_MS)
-      return refuse("He got a photo set less than a day ago. No more today: just answer in words.");
-    // Next in time order after the latest collection he already has.
-    const lastIndex = folders.findLastIndex((uuids) => uuids.some((u) => sentAt.has(u)));
-    const uuids = folders.slice(lastIndex + 1).find((f) => f.length);
-    if (!uuids) return refuse(lastIndex >= 0 ? "He already got every photo set. Do not send them again." : "No such photos are available. Just answer in words.");
+    const scene = Object.hasOwn(MOMENT_SCENES, args.scene) ? args.scene : null;
+    let uuids;
+    if (scene) {
+      // He asked for a current photo: the taxi or home set, only if he never had it (no daily limit for a request).
+      const other = scene === "taxi" ? "home" : "taxi";
+      const set = folders[MOMENT_SCENES[scene]];
+      if (!set.length) return refuse("No such photos are available. Just answer in words.");
+      if (set.some((u) => sentAt.has(u)))
+        return refuse(folders[MOMENT_SCENES[other]].some((u) => sentAt.has(u)) || !folders[MOMENT_SCENES[other]].length
+          ? "He already had both current sets. Send none: answer in words."
+          : `He already had the ${scene} set. Send the ${other} set if it fits what you told him, or answer in words.`);
+      uuids = set;
+    } else {
+      const lastMoment = Math.max(0, ...folders.flat().map((u) => sentAt.get(u) ?? 0));
+      if (lastMoment && this.now() - lastMoment < MOMENT_GAP_MS)
+        return refuse("He got a photo set less than a day ago. No more today: just answer in words.");
+      // Next in time order after the latest collection he already has.
+      const lastIndex = folders.findLastIndex((f) => f.some((u) => sentAt.has(u)));
+      uuids = folders.slice(lastIndex + 1).find((f) => f.length);
+      if (!uuids) return refuse(lastIndex >= 0 ? "He already got every photo set. Do not send them again." : "No such photos are available. Just answer in words.");
+    }
     if (this.replied) await this.sleep(typingDelayMs(text));
     await api.sendPhotos(fanUuid, text, uuids);
     const newest = (await api.fetchMessages(fanUuid).catch(() => []))[0];
