@@ -41,12 +41,15 @@ function ownLine(m, now) {
   return m.text ? `${m.text} ${media}` : media;
 }
 
+/** A message Andrea typed herself: a plain one-to-one message sent from no app (owner, 6 Nov 2026: her style is the one to copy). */
+const typedByHer = (m) => m.type === "SINGLE_RECIPIENT" && m.appUuid === null;
+
 /** Readable chat for Claude, oldest first. */
 export function formatChat(newestFirst, fanUuid, now) {
   return [...newestFirst]
     .reverse()
     .filter(messageText)
-    .map((m) => (m.sender.uuid === fanUuid ? `Fan: ${messageText(m)}` : `Andrea: ${ownLine(m, now)}`))
+    .map((m) => (m.sender.uuid === fanUuid ? `Fan: ${messageText(m)}` : `${typedByHer(m) ? "Andrea (her own typing)" : "Andrea"}: ${ownLine(m, now)}`))
     .join("\n");
 }
 
@@ -116,8 +119,8 @@ export function splitReply(text) {
   return rest ? [...lines.slice(0, MAX_REPLY_PARTS - 1), rest] : lines;
 }
 
-/** The pause before the next part of a reply: about as long as typing it, at most 8 seconds. */
-export const typingDelayMs = (text) => Math.min(1500 + text.length * 60, 8000);
+/** The pause before the next part of a reply: about as long as a person needs to type it, at most 15 seconds (owner, 6 Nov 2026: parts seconds apart looked automated). */
+export const typingDelayMs = (text) => Math.min(2500 + text.length * 90, 15000);
 
 export function belgradeNow(ms) {
   return new Intl.DateTimeFormat("sr-Latn-RS", { timeZone: "Europe/Belgrade", weekday: "long", hour: "2-digit", minute: "2-digit" }).format(new Date(ms));
