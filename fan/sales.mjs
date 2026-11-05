@@ -44,7 +44,7 @@ export function pickPack(pool, h, count, nude, random) {
 
 /** What photos this fan already got, from his chat (newest first). Mass messages that reached him count too. */
 export function salesHistory(messages, fanUuid, now, rules) {
-  const h = { seen: new Set(), offeredBefore: new Set(), freePhotos: 0, paidPhotos: 0, bought: 0, lastFreeAt: null, lastPaidAt: null, openPaid: 0 };
+  const h = { seen: new Set(), offeredBefore: new Set(), freePhotos: 0, paidPhotos: 0, bought: 0, lastFreeAt: null, lastPaidAt: null, firstPaidAt: null, openPaid: 0 };
   for (const m of messages) {
     if (m.sender.uuid === fanUuid || !m.mediaUuids?.length) continue;
     const at = Date.parse(m.sentAt) || 0;
@@ -54,6 +54,7 @@ export function salesHistory(messages, fanUuid, now, rules) {
       if (oneToOne) {
         h.paidPhotos++;
         h.lastPaidAt = Math.max(h.lastPaidAt ?? 0, at);
+        h.firstPaidAt = Math.min(h.firstPaidAt ?? at, at);
       }
       if (m.purchasedAt) {
         h.bought++;
@@ -88,6 +89,25 @@ export function photoRefusal(kind, h, now, priceUsd, rules) {
   if (h.openPaid >= maxOpen)
     return `He already has ${h.openPaid} paid ${h.openPaid === 1 ? "message" : "messages"} from the last ${rules.openPpvDays} days that he has not opened. No new one: tease about those instead.`;
   if (h.lastPaidAt && now - h.lastPaidAt < rules.paidPhotoHours * 3600_000) return `He got a paid photo in the last ${rules.paidPhotoHours} hours. No new one yet.`;
+  return null;
+}
+
+/**
+ * Owner, 6 Nov 2026: the replier may stop answering a fan it judges will never buy, but only after it really tried.
+ * Why he may not be dropped yet, or null when he may. Hard limits only; whether he is a lost cause is the model's call.
+ */
+export function notBuyingRefusal(insights, h, now, rules, { vip, noSale }) {
+  if (vip) return "He is a VIP: never stop answering him.";
+  if (noSale) return "He may not be sold to right now, so you cannot judge whether he would buy. Keep answering.";
+  if (!insights) return "Could not read what he has spent. Keep answering.";
+  const spent = insights.spending?.total?.netTotal ?? 0;
+  if (spent > 0 || h.bought > 0) return "He has paid before: never stop answering a fan who has spent money.";
+  const minOffers = rules.giveUpMinOffers ?? 3;
+  if (h.paidPhotos < minOffers)
+    return `He has had only ${h.paidPhotos} paid ${h.paidPhotos === 1 ? "offer" : "offers"} in this chat; at least ${minOffers} first. Keep going.`;
+  const minDays = rules.giveUpMinDays ?? 3;
+  if (!h.firstPaidAt || now - h.firstPaidAt < minDays * DAY_MS)
+    return `His first paid offer is less than ${minDays} days old. Give him more time.`;
   return null;
 }
 

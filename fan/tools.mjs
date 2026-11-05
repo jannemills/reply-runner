@@ -14,7 +14,7 @@ import {
   withReplyCount,
   withStopLine,
 } from "./chat.mjs";
-import { buildPool, photoRefusal, pickPack, pickPhoto, profileText, salesHistory } from "./sales.mjs";
+import { buildPool, notBuyingRefusal, photoRefusal, pickPack, pickPhoto, profileText, salesHistory } from "./sales.mjs";
 
 const none = { type: "object", properties: {}, additionalProperties: false };
 
@@ -109,6 +109,17 @@ export const TOOLS = [
   },
   { name: "mark_english", description: "Put this fan on the USA list. Only when he writes to you in English in his own words.", inputSchema: none },
   { name: "stop_chat", description: "End this chat for good. Only when he may be under 18.", inputSchema: none },
+  {
+    name: "stop_non_buyer",
+    description:
+      "Stop answering him because you have tried everything and judge he will never buy. Sends nothing; the owner is told. He is answered again as soon as he pays anything. Refused unless he has spent nothing and has had enough paid offers over enough days; the result says why.",
+    inputSchema: {
+      type: "object",
+      properties: { reason: { type: "string", description: "A few words on why, no chat text." } },
+      required: ["reason"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 // Research chats with creators we follow: read, take notes, reply. Nothing that sells, hands over or touches lists.
@@ -133,6 +144,7 @@ export class JobTools {
   momentSent = false;
   wroteAgain = false;
   stopped = false;
+  notBuying = false; // owner, 6 Nov 2026: the model judged he will never buy and the hard limits allowed it
   alerts = []; // { kind: "needs_person" | "offer", reason }
   #busy = false;
   #pool = null;
@@ -150,7 +162,7 @@ export class JobTools {
    * @param {string} o.usaListUuid
    * @param {() => Promise<{ok: boolean, reason?: string}>} o.gate asks the Worker whether sending is still allowed (pause, daily cap)
    */
-  constructor({ api, fanUuid, newestUuid, followUp, thanks, noSale, research, sendAt, rules, usaListUuid, gate, sleep, now, random }) {
+  constructor({ api, fanUuid, newestUuid, followUp, thanks, noSale, vip, research, sendAt, rules, usaListUuid, gate, sleep, now, random }) {
     this.api = api;
     this.research = !!research;
     this.fanUuid = fanUuid;
@@ -158,6 +170,7 @@ export class JobTools {
     this.followUp = followUp;
     this.thanks = !!thanks;
     this.noSale = !!noSale;
+    this.vip = !!vip;
     this.sendAt = sendAt;
     this.rules = rules;
     this.usaListUuid = usaListUuid;
@@ -169,11 +182,12 @@ export class JobTools {
 
   /** What the Worker is told when the job ends. It names ids and reasons, never chat text. */
   report() {
-    return { replied: this.replied, sentUuid: this.sentUuid, wroteAgain: this.wroteAgain, stopped: this.stopped, alerts: this.alerts };
+    return { replied: this.replied, sentUuid: this.sentUuid, wroteAgain: this.wroteAgain, stopped: this.stopped, notBuying: this.notBuying, alerts: this.alerts };
   }
 
   async call(name, args) {
     if (this.research && !RESEARCH_TOOLS.some((t) => t.name === name)) return refuse("Not available in this chat.");
+    if (this.notBuying && name.startsWith("send_")) return refuse("You stopped answering him. Send nothing.");
     switch (name) {
       case "read_chat": {
         const wanted = Math.min(Math.max(Number(args.count) || DEFAULT_CHAT_MESSAGES, 1), MAX_CHAT_MESSAGES);
@@ -219,6 +233,16 @@ export class JobTools {
       case "stop_chat":
         this.stopped = true;
         return ok("Chat stopped.");
+      case "stop_non_buyer": {
+        if (this.replied || this.photoSent || this.momentSent) return refuse("You already sent him something in this turn. Keep answering for now.");
+        const history = salesHistory(await this.readChat(SALES_HISTORY_MESSAGES), this.fanUuid, this.now(), this.rules);
+        const insights = await this.api.getFanInsights(this.fanUuid).catch(() => null);
+        const why = notBuyingRefusal(insights, history, this.now(), this.rules, { vip: this.vip, noSale: this.noSale });
+        if (why) return refuse(why);
+        this.notBuying = true;
+        this.alerts.push({ kind: "not_buying", reason: String(args.reason ?? "").slice(0, 80) });
+        return ok("Stopped. Send nothing more to him.");
+      }
       default:
         return refuse("Unknown tool.");
     }

@@ -137,6 +137,7 @@ if (jobRes.status === 404) {
       followUp: followUp || reengage || (!!engaged && !hasWritten), // no photos in these
       thanks,
       noSale: !!job.noSale,
+      vip: !!job.vip,
       sendAt: followUp ? undefined : job.sendAt,
       rules: job.rules,
       usaListUuid: job.usaListUuid,
