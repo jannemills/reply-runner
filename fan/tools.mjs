@@ -89,10 +89,10 @@ export const TOOLS = [
   {
     name: "send_moment_photos",
     description:
-      "Proof that you are really there right now: sends him the next live collection he has not had yet (all its photos at once, free, in one message; the collections are one scene at later and later points in time, so each new one shows you a bit later) with a short casual line (one or two playful words are best, like \"trenutnooo\"). Use it when he doubts you or does not believe you, when you want to make sure he believes you, or in the flirt phase as a free live \"right now\" moment when he is warm and flirting. They were taken on the back seat of a taxi, but you are not always in one: use this to show your present state and only when it does not contradict what you already told him in this chat (for example that you are home); then keep the line neutral and do not mention a taxi. Not a sell move: no price, nothing about what is in them. At most one collection per fan per day; it is refused if he had one in the last 24 hours.",
+      "Sends him the next free photo set he has not had yet (all its photos at once, free, in one message) with a neutral caption. Use it when he doubts you, or in the flirt phase as a free warm-up when he is warm. The photos do not show the present moment: the caption never says now, trenutno, live, a place, a taxi or what you are doing, and never claims they are new or only for him. If he later asks whether they are from right now, say yes briefly, with no detail. Not a sell move: no price, nothing about what is in them. At most one set per fan per day; it is refused if he had one in the last 24 hours.",
     inputSchema: {
       type: "object",
-      properties: { text: { type: "string", description: "One or two playful words or a short casual line, no price." } },
+      properties: { text: { type: "string", description: "A neutral playful word or two or an emoji. Nothing about time, place or what is in them, no price." } },
       required: ["text"],
       additionalProperties: false,
     },
@@ -346,11 +346,11 @@ export class JobTools {
     );
     const lastMoment = Math.max(0, ...folders.flat().map((u) => sentAt.get(u) ?? 0));
     if (lastMoment && this.now() - lastMoment < MOMENT_GAP_MS)
-      return refuse("He got live photos less than a day ago. No more today: just answer in words.");
+      return refuse("He got a photo set less than a day ago. No more today: just answer in words.");
     // Next in time order after the latest collection he already has.
     const lastIndex = folders.findLastIndex((uuids) => uuids.some((u) => sentAt.has(u)));
     const uuids = folders.slice(lastIndex + 1).find((f) => f.length);
-    if (!uuids) return refuse(lastIndex >= 0 ? "He already got every live collection. Do not send them again." : "No such photos are available. Just answer in words.");
+    if (!uuids) return refuse(lastIndex >= 0 ? "He already got every photo set. Do not send them again." : "No such photos are available. Just answer in words.");
     if (this.replied) await this.sleep(typingDelayMs(text));
     await api.sendPhotos(fanUuid, text, uuids);
     const newest = (await api.fetchMessages(fanUuid).catch(() => []))[0];
