@@ -6,6 +6,7 @@ import {
   formatResearchChat,
   isHandedOver,
   mergeNotes,
+  newFanMessages,
   newestPersonal,
   splitNotes,
   splitReply,
@@ -161,6 +162,14 @@ const MOMENT_GAP_MS = 24 * 60 * 60 * 1000;
 const ok = (text) => ({ text });
 const refuse = (text) => ({ text, isError: true });
 
+/**
+ * He asks to see her: a photo, her face or body, "show me", "where are your photos", "I'll give you a gift for it".
+ * Owner, 6 Nov 2026: a top spender asked for photos 8 times in a day and got only teasing; the owner then sold him $20 and
+ * $25 photos within minutes. Serbian in Latin and Cyrillic, and English.
+ */
+export const asksForPhoto = (text) =>
+  /(show me|send me|let me see|wanna see|want to see|see (more|your|all)|your (body|face|lips|ass|boobs|tits|pics?|photos?)|whole body|pics?\b|photos?\b|phots|picture|nudes?|selfie|gift for it|slik|fotk|posalji|pošalji|pokazi|pokaži|da te vidim|vidim te|da (ih |je )?vidim (te|tvoj|tvoje|tvoju|oci|oči|sise|guz|samo)|obecala si|obećala si|golisav|golu|голу|обећала си|tvoje telo|telo tvoje|слик|пошаљи|покажи|да те видим|да видим)/iu.test(text ?? "");
+
 export class JobTools {
   replied = false;
   sentUuid = undefined; // the newest message we sent: it anchors the follow-up
@@ -168,6 +177,8 @@ export class JobTools {
   momentSent = false;
   wroteAgain = false;
   stopped = false;
+  photoNudged = false; // the text-only reply to a photo request was refused once
+  missedPhotoAsk = false;
   notBuying = false; // owner, 6 Nov 2026: the model judged he will never buy and the hard limits allowed it
   alerts = []; // { kind: "needs_person" | "offer", reason }
   #busy = false;
@@ -206,6 +217,8 @@ export class JobTools {
 
   /** What the Worker is told when the job ends. It names ids and reasons, never chat text. */
   report() {
+    if (this.missedPhotoAsk && !this.photoSent) this.alerts.push({ kind: "offer", reason: "asked for photos, got words only" });
+    this.missedPhotoAsk = false;
     return { replied: this.replied, sentUuid: this.sentUuid, wroteAgain: this.wroteAgain, stopped: this.stopped, notBuying: this.notBuying, alerts: this.alerts };
   }
 
@@ -302,6 +315,16 @@ export class JobTools {
     return messages.slice(0, wanted);
   }
 
+  /** True when his newest messages ask to see her and at least one unseen photo is left for him. */
+  async #photoAskOpen() {
+    const messages = await this.readChat(SALES_HISTORY_MESSAGES).catch(() => null);
+    if (!messages || !asksForPhoto(newFanMessages(messages, this.fanUuid))) return false;
+    const pool = await this.#getPool();
+    if (!pool) return false;
+    const history = salesHistory(messages, this.fanUuid, this.now(), this.rules);
+    return pool.free.some((p) => !history.seen.has(p.uuid)) || paidCandidates(pool, history, this.vip).length > 0;
+  }
+
   #getPool() {
     // One retry: a single failed vault read once made the model note "no photo stock" for a top spender who still had 30+ photos.
     this.#pool ??= buildPool(this.api)
@@ -332,6 +355,19 @@ export class JobTools {
 
     const text = finalText(reply);
     if (!text) return refuse("Refused: no links, no mention of AI, and at most 600 characters. Rewrite it without those.");
+
+    // He asked to see her and she has photos for him: the photo goes out in this reply, not only words (owner, 6 Nov 2026).
+    if (!this.photoSent && !this.followUp && !this.thanks && !this.noSale && !this.research && (await this.#photoAskOpen())) {
+      if (!this.photoNudged) {
+        this.photoNudged = true;
+        return refuse(
+          "Not sent: he asked to see you and you have photos for him. Answer his ask with the photo itself, the way the owner sells: " +
+            "send_photo (paid at his usual price, or free if he has had nothing warm from you yet) or send_ppv_pack, with your words as its short caption. " +
+            "If you want one short line before it, call send_reply again with it and then the photo right after. Never only words.",
+        );
+      }
+      this.missedPhotoAsk = true;
+    }
 
     const [first, ...rest] = splitReply(text);
     await this.#sendPart(first);

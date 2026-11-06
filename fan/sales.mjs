@@ -47,11 +47,13 @@ export function paidCandidates(pool, h, vip) {
   return (pool.vipExtra ?? []).filter((p) => !h.seen.has(p.uuid) && !h.offeredBefore.has(p.uuid));
 }
 
-/** A pack for one paid message: one random unseen free preview from "preview" plus `count` random unseen photos from "ppv". Null when too few are left. */
+/** A pack for one paid message: one random unseen free preview from "preview" (or "free" when "preview" is empty) plus `count` random unseen photos from "ppv". Null when too few are left. */
 export function pickPack(pool, h, count, nude, random, vip = false) {
   const unseen = (list) => list.filter((p) => !h.seen.has(p.uuid));
-  const previews = unseen(pool.preview ?? []);
   let rest = unseen(pool.ppv);
+  // Owner deleted the "preview" folder (6 Nov 2026) and every pack was refused for every fan: an unseen free photo is the preview then.
+  const inRest = new Set(rest.map((p) => p.uuid));
+  const previews = unseen(pool.preview ?? []).length ? unseen(pool.preview) : unseen(pool.free ?? []).filter((p) => !h.offeredBefore.has(p.uuid) && !inRest.has(p.uuid));
   // A VIP with too few paid photos left gets the pack topped up from the unseen free and warm-up photos.
   if (vip && rest.length < count) rest = [...rest, ...(pool.vipExtra ?? []).filter((p) => !h.seen.has(p.uuid) && !h.offeredBefore.has(p.uuid))];
   if (!previews.length || rest.length < count) return null;
