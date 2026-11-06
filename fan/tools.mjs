@@ -176,6 +176,7 @@ export class JobTools {
   photoSent = false;
   momentSent = false;
   wroteAgain = false;
+  rebased = false;
   stopped = false;
   photoNudged = false; // the text-only reply to a photo request was refused once
   missedPhotoAsk = false;
@@ -337,6 +338,24 @@ export class JobTools {
     return this.#pool;
   }
 
+  /**
+   * The chat anchor still holds. One exception per job (owner, 7 Nov 2026): if only the fan wrote more since
+   * (nobody answered by hand, no refusal in his new words), move the anchor to his newest message once so the
+   * photo or pack still goes out instead of being dropped.
+   */
+  #anchorHolds(messages, anchor) {
+    const newest = newestPersonal(messages);
+    if (newest?.uuid === anchor) return true;
+    if (this.rebased || !newest || newest.sender.uuid !== this.fanUuid) return false;
+    const idx = messages.findIndex((m) => m.uuid === anchor); // newest first: the newer messages are before it
+    if (idx < 0) return false;
+    if (messages.slice(0, idx).some((m) => m.sender.uuid !== this.fanUuid)) return false; // someone else wrote since
+    if (/\b(ne|nemoj|stop|neću|necu|no|don'?t|not now|ne želim|ne zelim)\b/i.test(String(newest.text ?? ""))) return false;
+    this.rebased = true;
+    if (!this.replied) this.newestUuid = newest.uuid;
+    return true;
+  }
+
   async #sendReply(reply) {
     const { api, fanUuid } = this;
     if (isHandedOver(await api.getNotes(fanUuid))) return refuse("This chat is with a person. Stop here.");
@@ -405,7 +424,7 @@ export class JobTools {
       return refuse("Refused: one short line, at most 200 characters, no links, no mention of AI.");
     const messages = await this.readChat(SALES_HISTORY_MESSAGES);
     const anchor = this.replied ? this.sentUuid : this.newestUuid;
-    if (!anchor || newestPersonal(messages)?.uuid !== anchor) {
+    if (!anchor || !this.#anchorHolds(messages, anchor)) {
       this.wroteAgain = true;
       return refuse("The chat changed. Send nothing more. Stop here.");
     }
@@ -472,7 +491,7 @@ export class JobTools {
       return refuse("Refused: one short line, at most 200 characters, no links, no mention of AI.");
     const messages = await this.readChat(SALES_HISTORY_MESSAGES);
     const anchor = this.replied ? this.sentUuid : this.newestUuid;
-    if (!anchor || newestPersonal(messages)?.uuid !== anchor) {
+    if (!anchor || !this.#anchorHolds(messages, anchor)) {
       this.wroteAgain = true;
       return refuse("The chat changed. Send nothing more. Stop here.");
     }
@@ -509,7 +528,7 @@ export class JobTools {
 
     const messages = await this.readChat(SALES_HISTORY_MESSAGES);
     const anchor = this.replied ? this.sentUuid : this.newestUuid;
-    if (!anchor || newestPersonal(messages)?.uuid !== anchor) {
+    if (!anchor || !this.#anchorHolds(messages, anchor)) {
       this.wroteAgain = true;
       return refuse("The chat changed. Send nothing more. Stop here.");
     }
