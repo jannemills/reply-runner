@@ -221,9 +221,15 @@ export class JobTools {
         const history = salesHistory(await this.readChat(SALES_HISTORY_MESSAGES), this.fanUuid, this.now(), this.rules);
         const insights = await this.api.getFanInsights(this.fanUuid).catch(() => null);
         const pool = await this.#getPool();
-        const photos = pool
-          ? `Unseen photos left for him: ${pool.free.filter((p) => !history.seen.has(p.uuid)).length} free, ${pool.ppv.filter((p) => !history.seen.has(p.uuid)).length} paid.`
-          : "Photos: none available right now, so in the sell phase use ready_for_offer.";
+        const freeLeft = pool ? pool.free.filter((p) => !history.seen.has(p.uuid) && !history.offeredBefore.has(p.uuid)).length : 0;
+        const paidLeft = pool ? pool.ppv.filter((p) => !history.seen.has(p.uuid)).length : 0;
+        // Owner, 6 Nov 2026: a top spender asked for photos three times and got only small talk because he had bought every paid photo.
+        const photos = !pool
+          ? "Photos: none available right now, so in the sell phase use ready_for_offer."
+          : `Unseen photos left for him: ${freeLeft} free, ${paidLeft} paid.` +
+            (paidLeft
+              ? ""
+              : ` OUT OF PAID PHOTOS for him: he has had every paid photo. Follow "Out of paid photos" in your instructions: call ready_for_offer with reason "out of paid photos" now${freeLeft ? ", and if he asks for photos give him a free one with send_photo kind free" : ""}; never dodge his request and never say something is waiting for him.`);
         return ok(`${profileText(insights, history, this.rules)}\n${photos}`);
       }
       case "send_photo":
@@ -412,7 +418,7 @@ export class JobTools {
     if (refusal) return refuse(refusal);
     const pool = await this.#getPool();
     const pack = pool && pickPack(pool, history, count, args.nude === true, this.random);
-    if (!pack) return refuse("Not enough unseen photos or previews for him. Send no pack; use send_photo or ready_for_offer instead.");
+    if (!pack) return refuse("Not enough unseen paid photos or previews for him. Send no pack: try send_photo kind paid, and if that is refused too, follow \"Out of paid photos\" (free photo if he wants photos, ready_for_offer).");
 
     if (this.replied) await this.sleep(typingDelayMs(text));
     await api.sendPpvPack(fanUuid, text, [pack.preview, ...pack.photos], pack.preview, priceUsd * 100);
@@ -448,7 +454,12 @@ export class JobTools {
     if (refusal) return refuse(refusal);
     const pool = await this.#getPool();
     const photo = pool && pickPhoto(pool, kind, history, args.nude === true, this.random);
-    if (!photo) return refuse("No unseen photo is available for him. Send no photo; call ready_for_offer instead.");
+    if (!photo)
+      return refuse(
+        kind === "paid"
+          ? "No unseen paid photo is left for him. Follow \"Out of paid photos\": call ready_for_offer, and if he asked for photos send a free one with send_photo kind free instead."
+          : "No unseen free photo is left for him either. Send no photo; call ready_for_offer and answer him in words.",
+      );
 
     if (this.replied) await this.sleep(typingDelayMs(text));
     await api.sendPhoto(fanUuid, text, photo, kind === "paid" ? priceUsd * 100 : undefined);
