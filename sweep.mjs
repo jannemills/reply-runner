@@ -69,6 +69,8 @@ if (res.status === 404) {
     const missing = allFans.filter((f) => !f.lists.includes(ctx.testListUuid) && !excluded.has(f.uuid) && inScope(f.uuid)).map((f) => f.uuid);
     if (missing.length) await api.addToList(ctx.testListUuid, missing);
     result.listed = missing.length;
+    // Owner, 7 Nov 2026: nobody on the custom list "ignore" is ever answered; the Worker skips them.
+    if (ctx.ignoreListUuid) result.ignored = allFans.filter((f) => f.lists.includes(ctx.ignoreListUuid)).map((f) => f.uuid);
   } catch (err) {
     result.error ??= `list sync: ${err.status ?? "failed"}`;
   }
