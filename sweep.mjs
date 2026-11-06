@@ -57,6 +57,7 @@ if (res.status === 404) {
   try {
     const [spenders, subscribers] = await Promise.all([api.listSpenderFans(), api.listSubscriberFans()]);
     result.supporters = [...new Set([...spenders, ...subscribers])];
+    result.spenders = [...new Set(spenders)]; // no quiet hours for fans who have spent money (owner, 6 Nov 2026)
   } catch (err) {
     result.error ??= `supporters: ${err.status ?? "failed"}`;
   }
