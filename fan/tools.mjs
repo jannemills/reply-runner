@@ -14,7 +14,7 @@ import {
   withReplyCount,
   withStopLine,
 } from "./chat.mjs";
-import { buildPool, notBuyingRefusal, photoRefusal, pickPack, pickPhoto, profileText, salesHistory } from "./sales.mjs";
+import { buildPool, notBuyingRefusal, paidCandidates, photoRefusal, pickPack, pickPhoto, profileText, salesHistory } from "./sales.mjs";
 
 const none = { type: "object", properties: {}, additionalProperties: false };
 
@@ -222,13 +222,15 @@ export class JobTools {
         const insights = await this.api.getFanInsights(this.fanUuid).catch(() => null);
         const pool = await this.#getPool();
         const freeLeft = pool ? pool.free.filter((p) => !history.seen.has(p.uuid) && !history.offeredBefore.has(p.uuid)).length : 0;
-        const paidLeft = pool ? pool.ppv.filter((p) => !history.seen.has(p.uuid)).length : 0;
+        const paidLeft = pool ? paidCandidates(pool, history, this.vip).length : 0;
         // Owner, 6 Nov 2026: a top spender asked for photos three times and got only small talk because he had bought every paid photo.
         const photos = !pool
-          ? "Photos: none available right now, so in the sell phase use ready_for_offer."
+          ? "Photos: the photo stock could not be read this time (a temporary error, NOT out of stock). Do not hint at a photo in this reply and do not write anything about stock in your notes; check read_fan_profile again next time."
           : `Unseen photos left for him: ${freeLeft} free, ${paidLeft} paid.` +
             (paidLeft
-              ? ""
+              ? this.vip && !pool.ppv.some((p) => !history.seen.has(p.uuid))
+                ? " His usual paid photos are used up; his paid offers now come from softer lingerie and warm-up photos, so price them a little below his usual (a pack of 3 to 5 around $12 to $25) and keep selling."
+                : ""
               : ` OUT OF PAID PHOTOS for him: he has had every paid photo. Follow "Out of paid photos" in your instructions: call ready_for_offer with reason "out of paid photos" now${freeLeft ? ", and if he asks for photos give him a free one with send_photo kind free" : ""}; never dodge his request and never say something is waiting for him.`);
         return ok(`${profileText(insights, history, this.rules)}\n${photos}`);
       }
@@ -286,7 +288,10 @@ export class JobTools {
   }
 
   #getPool() {
-    this.#pool ??= buildPool(this.api).catch(() => null);
+    // One retry: a single failed vault read once made the model note "no photo stock" for a top spender who still had 30+ photos.
+    this.#pool ??= buildPool(this.api)
+      .catch(() => buildPool(this.api))
+      .catch(() => null);
     return this.#pool;
   }
 
@@ -417,7 +422,7 @@ export class JobTools {
     const refusal = photoRefusal("paid", history, this.now(), rules.minPriceUsd, rules);
     if (refusal) return refuse(refusal);
     const pool = await this.#getPool();
-    const pack = pool && pickPack(pool, history, count, args.nude === true, this.random);
+    const pack = pool && pickPack(pool, history, count, args.nude === true, this.random, this.vip);
     if (!pack) return refuse("Not enough unseen paid photos or previews for him. Send no pack: try send_photo kind paid, and if that is refused too, follow \"Out of paid photos\" (free photo if he wants photos, ready_for_offer).");
 
     if (this.replied) await this.sleep(typingDelayMs(text));
@@ -453,7 +458,7 @@ export class JobTools {
     const refusal = photoRefusal(kind, history, this.now(), priceUsd, rules);
     if (refusal) return refuse(refusal);
     const pool = await this.#getPool();
-    const photo = pool && pickPhoto(pool, kind, history, args.nude === true, this.random);
+    const photo = pool && pickPhoto(pool, kind, history, args.nude === true, this.random, this.vip);
     if (!photo)
       return refuse(
         kind === "paid"

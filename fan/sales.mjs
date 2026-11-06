@@ -16,23 +16,42 @@ export function poolFrom(media, skip) {
 
 /** The photos the sell phase may use: ready images in the vault folders "free" and "ppv", minus the "AI Images" folder. */
 export async function buildPool(api) {
-  const [free, ppv, preview, ai, posted, scheduled] = await Promise.all([
+  const [free, ppv, preview, ai, posted, scheduled, ...warmUp] = await Promise.all([
     api.listFolderMedia("free"),
     api.listFolderMedia("ppv"),
     api.listFolderMedia("preview").catch(() => []),
     api.listFolderMedia("AI Images"),
     api.listPostedMedia(),
     api.listScheduledMassMedia(),
+    ...VIP_EXTRA_FOLDERS.map((f) => api.listFolderMedia(f).catch(() => [])),
   ]);
   const skip = new Set([...ai.map((m) => m.uuid), ...posted, ...scheduled]);
-  return { free: poolFrom(free, skip), ppv: poolFrom(ppv, skip), preview: poolFrom(preview, skip) };
+  const ppvPool = poolFrom(ppv, skip);
+  const inPpv = new Set(ppvPool.map((p) => p.uuid));
+  const vipExtra = [...new Map(poolFrom([...free, ...warmUp.flat()], skip).filter((p) => !inPpv.has(p.uuid)).map((p) => [p.uuid, p])).values()];
+  return { free: poolFrom(free, skip), ppv: ppvPool, preview: poolFrom(preview, skip), vipExtra };
+}
+
+/**
+ * Owner, 6 Nov 2026: "we should sell to VIP a lot". When a VIP has had every paid photo, paid offers to him may use photos he
+ * has never seen from the free and warm-up folders. Only for VIPs and only after "ppv" is used up for him.
+ */
+export const VIP_EXTRA_FOLDERS = ["thong", "zapoznavanje 1", "zagrevanje 1", "miksanje 1"];
+
+/** The paid photos he can still be sold: "ppv", and for a VIP whose "ppv" is used up, the unseen free and warm-up photos. */
+export function paidCandidates(pool, h, vip) {
+  const ppv = pool.ppv.filter((p) => !h.seen.has(p.uuid));
+  if (ppv.length || !vip) return ppv;
+  return (pool.vipExtra ?? []).filter((p) => !h.seen.has(p.uuid) && !h.offeredBefore.has(p.uuid));
 }
 
 /** A pack for one paid message: one random unseen free preview from "preview" plus `count` random unseen photos from "ppv". Null when too few are left. */
-export function pickPack(pool, h, count, nude, random) {
+export function pickPack(pool, h, count, nude, random, vip = false) {
   const unseen = (list) => list.filter((p) => !h.seen.has(p.uuid));
   const previews = unseen(pool.preview ?? []);
   let rest = unseen(pool.ppv);
+  // A VIP with too few paid photos left gets the pack topped up from the unseen free and warm-up photos.
+  if (vip && rest.length < count) rest = [...rest, ...(pool.vipExtra ?? []).filter((p) => !h.seen.has(p.uuid) && !h.offeredBefore.has(p.uuid))];
   if (!previews.length || rest.length < count) return null;
   if (nude && rest.filter((p) => p.nude).length >= count) rest = rest.filter((p) => p.nude);
   const preview = previews[Math.floor(random() * previews.length)].uuid;
@@ -112,10 +131,9 @@ export function notBuyingRefusal(insights, h, now, rules, { vip, noSale }) {
 }
 
 /** A random photo he has not seen. A paid photo he never opened may be offered again as a paid one. */
-export function pickPhoto(pool, kind, h, nude, random) {
-  const candidates = (kind === "free" ? pool.free : pool.ppv).filter(
-    (p) => !h.seen.has(p.uuid) && (kind === "paid" || !h.offeredBefore.has(p.uuid)),
-  );
+export function pickPhoto(pool, kind, h, nude, random, vip = false) {
+  const candidates =
+    kind === "paid" ? paidCandidates(pool, h, vip) : pool.free.filter((p) => !h.seen.has(p.uuid) && !h.offeredBefore.has(p.uuid));
   const preferred = nude ? candidates.filter((p) => p.nude) : candidates;
   const from = preferred.length ? preferred : candidates;
   return from.length ? from[Math.floor(random() * from.length)].uuid : null;
