@@ -141,6 +141,7 @@ if (jobRes.status === 404) {
       sendAt: followUp ? undefined : job.sendAt,
       rules: job.rules,
       usaListUuid: job.usaListUuid,
+      ignoreListUuid: job.ignoreListUuid,
       gate: async () => {
         try {
           const res = await post("/may-send", {});

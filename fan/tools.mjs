@@ -196,9 +196,10 @@ export class JobTools {
    * @param {number} [o.sendAt] earliest time the first message may go out
    * @param {object} o.rules sales numbers from the Worker
    * @param {string} o.usaListUuid
+   * @param {string=} o.ignoreListUuid
    * @param {() => Promise<{ok: boolean, reason?: string}>} o.gate asks the Worker whether sending is still allowed (pause, daily cap)
    */
-  constructor({ api, fanUuid, newestUuid, followUp, thanks, noSale, vip, research, sendAt, rules, usaListUuid, gate, sleep, now, random }) {
+  constructor({ api, fanUuid, newestUuid, followUp, thanks, noSale, vip, research, sendAt, rules, usaListUuid, ignoreListUuid, gate, sleep, now, random }) {
     this.api = api;
     this.research = !!research;
     this.fanUuid = fanUuid;
@@ -210,6 +211,7 @@ export class JobTools {
     this.sendAt = sendAt;
     this.rules = rules;
     this.usaListUuid = usaListUuid;
+    this.ignoreListUuid = ignoreListUuid;
     this.gate = gate;
     this.sleep = sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.now = now ?? (() => Date.now());
@@ -286,6 +288,8 @@ export class JobTools {
         const why = notBuyingRefusal(insights, history, this.now(), this.rules, { vip: this.vip, noSale: this.noSale });
         if (why) return refuse(why);
         this.notBuying = true;
+        // Owner, 7 Nov 2026: a fan who keeps refusing to pay moves into the custom list "ignore".
+        if (this.ignoreListUuid) await this.api.addToList(this.ignoreListUuid, [this.fanUuid]).catch(() => {});
         this.alerts.push({ kind: "not_buying", reason: String(args.reason ?? "").slice(0, 80) });
         return ok("Stopped. Send nothing more to him.");
       }
