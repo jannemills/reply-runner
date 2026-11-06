@@ -5,14 +5,14 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-export function runClaude(prompt, args) {
+export function runClaude(prompt, args, effort = "low") {
   const { PATH, HOME, CLAUDE_CODE_OAUTH_TOKEN } = process.env;
   return new Promise((resolve, reject) => {
     // An empty folder and a minimal environment, so nothing else can reach the conversation.
     const cwd = mkdtempSync(join(tmpdir(), "reply-"));
     const child = spawn(
       "claude",
-      ["-p", "--output-format", "json", "--effort", "low", "--strict-mcp-config", "--setting-sources", "", "--no-session-persistence", ...args],
+      ["-p", "--output-format", "json", "--effort", effort, "--strict-mcp-config", "--setting-sources", "", "--no-session-persistence", ...args],
       { cwd, env: { PATH, HOME, CLAUDE_CODE_OAUTH_TOKEN }, stdio: ["pipe", "pipe", "ignore"] },
     );
     let out = "";
@@ -46,6 +46,7 @@ export async function runFilter({ model, system, prompt, schema }) {
 export async function runAgent({ model, system, prompt, toolNames, mcpUrl, mcpKey }) {
   const config = join(mkdtempSync(join(tmpdir(), "mcp-")), "mcp.json");
   writeFileSync(config, JSON.stringify({ mcpServers: { chat: { type: "http", url: mcpUrl, headers: { "x-tool-key": mcpKey } } } }), { mode: 0o600 });
+  // The reply agent always runs at high effort (owner, 6 Nov 2026); the filter stays low.
   const result = await runClaude(prompt, [
     "--model", model,
     "--tools", "",
@@ -53,6 +54,6 @@ export async function runAgent({ model, system, prompt, toolNames, mcpUrl, mcpKe
     "--allowedTools", toolNames.map((t) => `mcp__chat__${t}`).join(","),
     "--max-turns", "10",
     "--system-prompt", system,
-  ]);
+  ], "high");
   if (result.is_error) throw failure(result);
 }
