@@ -19,8 +19,10 @@ export async function buildPool(api) {
   const [free, ppv, preview, ai, posted, scheduled, ...warmUp] = await Promise.all([
     api.listFolderMedia("free"),
     api.listFolderMedia("ppv"),
+    // Owner may delete or rename optional folders (6 Nov 2026: "AI Images" and "preview" were gone and a 404 there
+    // broke the whole pool, so no fan got any photo for hours). Only "free" and "ppv" are required.
     api.listFolderMedia("preview").catch(() => []),
-    api.listFolderMedia("AI Images"),
+    api.listFolderMedia("AI Images").catch(() => []),
     api.listPostedMedia(),
     api.listScheduledMassMedia(),
     ...VIP_EXTRA_FOLDERS.map((f) => api.listFolderMedia(f).catch(() => [])),

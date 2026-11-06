@@ -141,6 +141,21 @@ const PAGE_SIZE = 50;
 // Owner, 6 Nov 2026: "in the moment" was taken in a taxi, "in the moment 1" at home. Sent on request for a current photo.
 export const MOMENT_SCENES = { taxi: 0, home: 1 };
 export const MOMENT_FOLDERS = ["in the moment", "in the moment 1", "in the moment 2", "in the moment 3", "in the moment 4", "in the moment 5"];
+
+/**
+ * The moment folders as they are named in the vault right now, in time order. The owner renames them (6 Nov 2026:
+ * "in the moment (taxi)", "in the moment 1 (home)", ...), so they are matched by "in the moment" + optional number and
+ * an optional "(scene)". Returns [{ name, index, scene }] sorted by index; falls back to the fixed names.
+ */
+export function momentFolders(folders) {
+  const found = [];
+  for (const f of folders ?? []) {
+    const m = /^in the moment(?:\s+(\d+))?\s*(?:\(([^)]*)\))?\s*$/i.exec((f.name ?? "").trim());
+    if (m) found.push({ name: f.name, index: m[1] ? Number(m[1]) : 0, scene: (m[2] ?? "").trim().toLowerCase() || null });
+  }
+  if (!found.length) return MOMENT_FOLDERS.map((name, index) => ({ name, index, scene: index === 0 ? "taxi" : index === 1 ? "home" : null }));
+  return found.sort((a, b) => a.index - b.index);
+}
 const MOMENT_GAP_MS = 24 * 60 * 60 * 1000;
 
 const ok = (text) => ({ text });
@@ -291,7 +306,11 @@ export class JobTools {
     // One retry: a single failed vault read once made the model note "no photo stock" for a top spender who still had 30+ photos.
     this.#pool ??= buildPool(this.api)
       .catch(() => buildPool(this.api))
-      .catch(() => null);
+      .catch(() => {
+        // Never fail silently again (6 Nov 2026: a missing folder blocked every photo for hours): tell the owner.
+        this.alerts.push({ kind: "offer", reason: "photo stock could not be read (check vault folders free and ppv)" });
+        return null;
+      });
     return this.#pool;
   }
 
@@ -356,8 +375,9 @@ export class JobTools {
     }
     const sentAt = new Map(); // media uuid -> when we sent it to him
     for (const m of messages) if (m.sender.uuid !== fanUuid) for (const u of m.mediaUuids ?? []) sentAt.set(u, Date.parse(m.sentAt) || 0);
+    const named = momentFolders(await Promise.resolve().then(() => api.listFolders()).catch(() => null));
     const folders = await Promise.all(
-      MOMENT_FOLDERS.map((name) =>
+      named.map(({ name }) =>
         api
           .listFolderMedia(name)
           .then((media) => media.filter((m) => m.status === "ready" && m.mediaType === "image").map((m) => m.uuid))
@@ -369,10 +389,13 @@ export class JobTools {
     if (scene) {
       // He asked for a current photo: the taxi or home set, only if he never had it (no daily limit for a request).
       const other = scene === "taxi" ? "home" : "taxi";
-      const set = folders[MOMENT_SCENES[scene]];
-      if (!set.length) return refuse("No such photos are available. Just answer in words.");
-      if (set.some((u) => sentAt.has(u)))
-        return refuse(folders[MOMENT_SCENES[other]].some((u) => sentAt.has(u)) || !folders[MOMENT_SCENES[other]].length
+      // The sets of this scene in time order (a folder named "(home)" or, unnamed, the old fixed position).
+      const ofScene = (s) => named.map((f, i) => ({ f, i })).filter(({ f }) => (f.scene ? f.scene === s : f.index === MOMENT_SCENES[s])).map(({ i }) => folders[i]).filter((u) => u.length);
+      const sets = ofScene(scene);
+      const set = sets.find((u) => !u.some((x) => sentAt.has(x))) ?? [];
+      if (!sets.length) return refuse("No such photos are available. Just answer in words.");
+      if (!set.length)
+        return refuse(ofScene(other).every((u) => u.some((x) => sentAt.has(x)))
           ? "He already had both current sets. Send none: answer in words."
           : `He already had the ${scene} set. Send the ${other} set if it fits what you told him, or answer in words.`);
       uuids = set;

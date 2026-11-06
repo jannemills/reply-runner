@@ -130,6 +130,7 @@ export function createApi(token, base = process.env.FAN_API_URL || "https://api.
     async getFanInsights(fanUuid) {
       return (await call(`/insights/fans/${fanUuid}`)).json();
     },
+    listFolders: () => pages("/vault/folders", 4),
     listFolderMedia: (folder) => pages(`/vault/folders/${encodeURIComponent(folder)}/media`, 6),
     /** Media in every post, scheduled and unpublished ones included. */
     async listPostedMedia() {
