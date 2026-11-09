@@ -162,15 +162,23 @@ const STOP_REASONS = {
 };
 
 /** Only your part of the note counts, so nothing the bot writes as memory can start or stop it. */
-export const isHandedOver = (notes) => splitNotes(notes).own.split("\n").some((line) => line.startsWith(STOP_LINE));
+// Owner, 10 Nov 2026: "we should be smart enough". A handed-over chat never waits more than this long: after it the line
+// is ignored and the bot answers him itself. Lines without a stamp (older ones) count as handed over until deleted.
+export const HAND_OVER_TTL_MS = 3 * 60 * 60 * 1000;
+export const isHandedOver = (notes, now = Date.now()) =>
+  splitNotes(notes).own.split("\n").some((line) => {
+    if (!line.startsWith(STOP_LINE)) return false;
+    const at = Number(/\[t=(\d+)\]/.exec(line)?.[1]);
+    return !at || now - at < HAND_OVER_TTL_MS;
+  });
 
 const withOwn = (notes, own) => mergeNotes(own, splitNotes(notes).memory);
 
-export function withStopLine(notes, reason, when) {
-  if (isHandedOver(notes)) return notes ?? "";
+export function withStopLine(notes, reason, when, nowMs = Date.now()) {
+  if (isHandedOver(notes, nowMs)) return notes ?? "";
   const why = STOP_REASONS[reason] ?? "he needs a person";
-  const line = `${STOP_LINE}: ${why} (${when}). Answer him, then delete this line to give the chat back to the bot.`;
-  const { own } = splitNotes(notes);
+  const line = `${STOP_LINE}: ${why} (${when}) [t=${nowMs}]. Answer him, then delete this line to give the chat back to the bot (it gives itself back after 3 hours).`;
+  const own = splitNotes(notes).own.split("\n").filter((l) => !l.startsWith(STOP_LINE)).join("\n");
   return withOwn(notes, own ? `${line}\n${own}` : line);
 }
 
