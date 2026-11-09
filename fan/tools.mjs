@@ -243,7 +243,7 @@ export class JobTools {
         return this.#exclusive("You already replied.", () => this.#sendReply(String(args.text ?? "")), this.replied);
       case "hand_over": {
         const reason = String(args.reason ?? "");
-        await this.api.putNotes(this.fanUuid, withStopLine(await this.api.getNotes(this.fanUuid), reason, belgradeNow(this.now())));
+        await this.api.putNotes(this.fanUuid, withStopLine(await this.api.getNotes(this.fanUuid), reason, belgradeNow(this.now()), this.now()));
         await this.api.markChatUnread(this.fanUuid).catch(() => {});
         this.alerts.push({ kind: "needs_person", reason });
         return ok("Handed over. Do not reply.");
@@ -362,7 +362,7 @@ export class JobTools {
 
   async #sendReply(reply) {
     const { api, fanUuid } = this;
-    if (isHandedOver(await api.getNotes(fanUuid))) return refuse("This chat is with a person. Stop here.");
+    if (isHandedOver(await api.getNotes(fanUuid), this.now())) return refuse("This chat is with a person. Stop here.");
     const gate = await this.gate();
     if (!gate.ok) return refuse(gate.reason ?? "Not allowed now. Stop here.");
 
@@ -420,7 +420,7 @@ export class JobTools {
   async #sendMomentPhotos(args) {
     const { api, fanUuid } = this;
     if (this.followUp) return refuse("No photos in a follow-up. Stop here.");
-    if (isHandedOver(await api.getNotes(fanUuid))) return refuse("This chat is with a person. Stop here.");
+    if (isHandedOver(await api.getNotes(fanUuid), this.now())) return refuse("This chat is with a person. Stop here.");
     const gate = await this.gate();
     if (!gate.ok) return refuse(gate.reason ?? "Not allowed now. Stop here.");
     const text = finalText(String(args.text ?? ""));
@@ -487,7 +487,7 @@ export class JobTools {
     const maxPack = rules.packMaxPriceUsd ?? 40;
     if (!Number.isInteger(count) || count < 2 || count > 6) return refuse("Choose 2 to 6 photos.");
     if (!Number.isInteger(priceUsd) || priceUsd < 5 || priceUsd > maxPack) return refuse(`Choose a whole-dollar pack price from 5 to ${maxPack}.`);
-    if (isHandedOver(await api.getNotes(fanUuid))) return refuse("This chat is with a person. Stop here.");
+    if (isHandedOver(await api.getNotes(fanUuid), this.now())) return refuse("This chat is with a person. Stop here.");
     const gate = await this.gate();
     if (!gate.ok) return refuse(gate.reason ?? "Not allowed now. Stop here.");
     const text = finalText(String(args.text ?? ""));
@@ -523,7 +523,7 @@ export class JobTools {
     if (this.noSale && kind === "paid") return refuse("He is sold nothing after a refund or chargeback: no paid photo. Stop here.");
     if (this.thanks && kind === "paid") return refuse("No paid photo in a thank-you for his tip: the next offer waits until he flirts again. Stop here.");
     const priceUsd = args.price_usd === undefined ? undefined : Number(args.price_usd);
-    if (isHandedOver(await api.getNotes(fanUuid))) return refuse("This chat is with a person. Stop here.");
+    if (isHandedOver(await api.getNotes(fanUuid), this.now())) return refuse("This chat is with a person. Stop here.");
     const gate = await this.gate();
     if (!gate.ok) return refuse(gate.reason ?? "Not allowed now. Stop here.");
     const text = finalText(String(args.text ?? ""));
