@@ -98,12 +98,14 @@ if (jobRes.status === 404) {
     const engaged = !wrote && !thanks && !reaction && job.engagement ? job.engagement.kind : null;
     const hasWritten = messages.some((m) => m.sender.uuid === fanUuid);
     const comment = engaged === "comment" ? await api.postComment(job.engagement.postUuid, job.engagement.commentId, fanUuid).catch(() => null) : null;
-    // He came back online: one easy message, only if he has written before, and her newest message of any kind
-    // (mass messages and automations too) has gone unanswered for the quiet time.
+    // He came back online: one easy message when her newest message of any kind (mass messages and automations too)
+    // has gone unanswered for the quiet time. Owner, 11 Nov 2026 (new fans don't convert): a joiner who never wrote
+    // is reached too, after the shorter silentQuietHours, so the welcome automation is not the last he hears from her.
     const quietMs = newest ? Date.now() - Date.parse(newest.sentAt) : 0;
+    const quietNeededHours = hasWritten ? job.reengage?.quietHours : job.reengage?.silentQuietHours;
     const reengage =
       !wrote && !thanks && !reaction && !engaged && !!job.reengage && !!newest && newest.sender.uuid !== fanUuid &&
-      messages.some((m) => m.sender.uuid === fanUuid) && quietMs >= job.reengage.quietHours * 3600_000;
+      quietNeededHours > 0 && quietMs >= quietNeededHours * 3600_000;
     const followUp = !thanks && !reaction && !engaged && !reengage && !!job.followUpAfter && stillNewest(messages, job.followUpAfter);
     if (!wrote && !followUp && !thanks && !reaction && !engaged && !reengage) return void (await post("", { done: true, skipped: "answered" })); // someone answered him by hand
 
@@ -122,7 +124,7 @@ if (jobRes.status === 404) {
       ...(thanks ? { thanks } : {}),
       ...(reaction ? { reaction } : {}),
       ...(engaged ? { engaged } : {}),
-      ...(reengage ? { reengageDays: Math.max(1, Math.round(quietMs / 86_400_000)) } : {}),
+      ...(reengage ? { reengageDays: Math.max(1, Math.round(quietMs / 86_400_000)), ...(hasWritten ? {} : { neverWrote: true }) } : {}),
     });
     if (!promptRes.ok) throw new Error(`fetching the prompt failed: ${promptRes.status}`);
     const agent = await promptRes.json();
