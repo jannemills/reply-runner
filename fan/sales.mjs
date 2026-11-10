@@ -99,7 +99,18 @@ export function salesHistory(messages, fanUuid, now, rules) {
 }
 
 /** Why this photo may not go out now, or null when it may. */
-export function photoRefusal(kind, h, now, priceUsd, rules) {
+export function photoRefusal(kind, h, now, priceUsd, rules, firstBuyer = false) {
+  // Owner, 10 Nov 2026: a fan who never paid gets a few free photos, then a small first unlock instead of more free ones.
+  if (firstBuyer && rules.firstBuyMaxUsd != null) {
+    const range = `$${rules.minPriceUsd} to $${rules.firstBuyMaxUsd}`;
+    if (kind === "free" && rules.freeBeforeFirstBuy != null && h.freePhotos >= rules.freeBeforeFirstBuy)
+      return `He has had ${h.freePhotos} free photos and never paid. No more free ones: his next photo is one small paid photo (${range}), his first unlock.`;
+    if (kind === "paid" && Number(priceUsd) > rules.firstBuyMaxUsd)
+      return `He has never paid anything: his first unlock costs ${range}. Choose a price in that range.`;
+    if (kind === "pack")
+      return `He has never paid anything: his first offer is one single paid photo with send_photo at ${range}, not a pack.`;
+  }
+  if (kind === "pack") kind = "paid";
   if (kind === "free") {
     if (h.lastFreeAt && now - h.lastFreeAt < rules.freePhotoDays * DAY_MS)
       return `He got a free photo in the last ${rules.freePhotoDays} days. No new one yet.`;
@@ -161,4 +172,10 @@ export function profileText(raw, h, rules) {
     `Photos in this chat: ${h.freePhotos} free (last ${day(h.lastFreeAt)}), ${h.paidPhotos} paid (last ${day(h.lastPaidAt)}), ${h.bought} bought, ${h.openPaid ? `${h.openPaid} paid ${h.openPaid === 1 ? "message" : "messages"} from the last ${rules.openPpvDays} days still unopened (at most ${rules.maxOpenPaid ?? 1} open at once)` : `no unopened paid photo from the last ${rules.openPpvDays} days`}`,
     rules.priceGuide,
   ].join("\n");
+}
+
+/** Owner, 10 Nov 2026: true when he has never paid anything (no purchase in the chat, $0 spent). Unknown spend or a VIP is not a first buyer. */
+export function isFirstBuyer(insights, h, vip) {
+  if (vip || !insights || h.bought > 0) return false;
+  return (insights.spending?.total?.netTotal ?? 0) <= 0;
 }

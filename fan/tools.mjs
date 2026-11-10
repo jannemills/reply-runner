@@ -15,7 +15,7 @@ import {
   withReplyCount,
   withStopLine,
 } from "./chat.mjs";
-import { buildPool, notBuyingRefusal, paidCandidates, photoRefusal, pickPack, pickPhoto, profileText, salesHistory } from "./sales.mjs";
+import { buildPool, isFirstBuyer, notBuyingRefusal, paidCandidates, photoRefusal, pickPack, pickPhoto, profileText, salesHistory } from "./sales.mjs";
 
 const none = { type: "object", properties: {}, additionalProperties: false };
 
@@ -500,8 +500,9 @@ export class JobTools {
       return refuse("The chat changed. Send nothing more. Stop here.");
     }
     const history = salesHistory(messages, fanUuid, this.now(), rules);
-    // Same open-photo limit (maxOpenPaid) and waiting time as a single paid photo.
-    const refusal = photoRefusal("paid", history, this.now(), rules.minPriceUsd, rules);
+    const firstBuyer = isFirstBuyer(await api.getFanInsights(fanUuid).catch(() => null), history, this.vip);
+    // Same open-photo limit (maxOpenPaid) and waiting time as a single paid photo; never a pack as his first offer.
+    const refusal = photoRefusal("pack", history, this.now(), rules.minPriceUsd, rules, firstBuyer);
     if (refusal) return refuse(refusal);
     const pool = await this.#getPool();
     const pack = pool && pickPack(pool, history, count, args.nude === true, this.random, this.vip);
@@ -537,7 +538,8 @@ export class JobTools {
       return refuse("The chat changed. Send nothing more. Stop here.");
     }
     const history = salesHistory(messages, fanUuid, this.now(), rules);
-    const refusal = photoRefusal(kind, history, this.now(), priceUsd, rules);
+    const firstBuyer = isFirstBuyer(await api.getFanInsights(fanUuid).catch(() => null), history, this.vip);
+    const refusal = photoRefusal(kind, history, this.now(), priceUsd, rules, firstBuyer);
     if (refusal) return refuse(refusal);
     const pool = await this.#getPool();
     const photo = pool && pickPhoto(pool, kind, history, args.nude === true, this.random, this.vip);

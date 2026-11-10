@@ -11,7 +11,6 @@ const { JOB_ID, WORKER_URL, JOB_SECRET } = process.env;
 if (!/^[0-9a-f-]{36}$/.test(JOB_ID ?? "")) throw new Error("bad job id");
 
 // A like or comment on her post gets a message only if she has not written to him in this long (no double texting).
-const ENGAGE_GAP_MS = 30 * 60_000;
 
 const jobUrl = `${WORKER_URL}/job/${JOB_ID}`;
 const headers = { "x-job-secret": JOB_SECRET, "Content-Type": "application/json" };
@@ -93,10 +92,10 @@ if (jobRes.status === 404) {
       !wrote && !thanks && job.reaction && hersNewest && hersNewest.sender.uuid !== fanUuid && hersNewest.uuid === job.reaction.messageUuid
         ? reactedTo(hersNewest)
         : null;
-    // He liked or commented on her post: one message while he is on her page, if he wrote nothing and she has not
-    // written to him in the last 30 minutes. In a chat where he never wrote, no photo.
-    const hersRecent = !!hersNewest && hersNewest.sender.uuid !== fanUuid && Date.now() - Date.parse(hersNewest.sentAt) < ENGAGE_GAP_MS;
-    const engaged = !wrote && !thanks && !reaction && job.engagement && !hersRecent ? job.engagement.kind : null;
+    // He liked or commented on her post: one message while he is on her page, if he wrote nothing (then his message is
+    // answered instead). Owner, 10 Nov 2026: "the on-like should always trigger", so no 30-minute gap after her own
+    // message any more. In a chat where he never wrote, no photo.
+    const engaged = !wrote && !thanks && !reaction && job.engagement ? job.engagement.kind : null;
     const hasWritten = messages.some((m) => m.sender.uuid === fanUuid);
     const comment = engaged === "comment" ? await api.postComment(job.engagement.postUuid, job.engagement.commentId, fanUuid).catch(() => null) : null;
     // He came back online: one easy message, only if he has written before, and her newest message of any kind
