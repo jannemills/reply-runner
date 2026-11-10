@@ -15,7 +15,7 @@ import {
   withReplyCount,
   withStopLine,
 } from "./chat.mjs";
-import { buildPool, isFirstBuyer, notBuyingRefusal, paidCandidates, photoRefusal, pickPack, pickPhoto, profileText, salesHistory } from "./sales.mjs";
+import { buildPool, poolForFan, isFirstBuyer, notBuyingRefusal, paidCandidates, photoRefusal, pickPack, pickPhoto, profileText, salesHistory } from "./sales.mjs";
 
 const none = { type: "object", properties: {}, additionalProperties: false };
 
@@ -338,7 +338,8 @@ export class JobTools {
         // Never fail silently again (6 Nov 2026: a missing folder blocked every photo for hours): tell the owner.
         this.alerts.push({ kind: "offer", reason: "photo stock could not be read (check vault folders free and ppv)" });
         return null;
-      });
+      })
+      .then((pool) => poolForFan(pool, this.fanUuid));
     return this.#pool;
   }
 

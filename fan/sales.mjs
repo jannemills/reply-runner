@@ -10,8 +10,23 @@ export function poolFrom(media, skip) {
     .filter((m) => m.status === "ready" && m.mediaType === "image" && !isAiRefurbished(m) && !skip.has(m.uuid))
     .map((m) => ({
       uuid: m.uuid,
+      createdAt: Date.parse(m.createdAt ?? "") || 0,
       nude: [...(m.tags?.tags ?? []), ...(m.tags?.nsfwCategory ?? [])].some((t) => t.toLowerCase() === "nudes"),
     }));
+}
+
+/**
+ * Owner, 11 Nov 2026: vivid-prawn-53 (the top spender) only gets photos added to the vault from 10 Nov 2026 on; nothing older,
+ * free or paid. Photos with no readable date are left out for him too.
+ */
+export const PHOTO_FROM_BY_FAN = { "94ca4ee5-48c5-47ef-94a3-28b2ee170af6": Date.parse("2026-11-10T00:00:00Z") };
+
+/** The pool for one fan: his photo cut-off date applied to every list, if he has one. */
+export function poolForFan(pool, fanUuid) {
+  const from = PHOTO_FROM_BY_FAN[fanUuid];
+  if (!pool || !from) return pool;
+  const keep = (list) => (list ?? []).filter((p) => p.createdAt >= from);
+  return { ...pool, free: keep(pool.free), ppv: keep(pool.ppv), preview: keep(pool.preview), vipExtra: keep(pool.vipExtra) };
 }
 
 /** The photos the sell phase may use: ready images in the vault folders "free" and "ppv", minus the "AI Images" folder. */
