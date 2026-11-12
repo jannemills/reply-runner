@@ -58,6 +58,7 @@ if (res.status === 404) {
     const [spenders, subscribers] = await Promise.all([api.listSpenderFans(), api.listSubscriberFans()]);
     result.supporters = [...new Set([...spenders, ...subscribers])];
     result.spenders = [...new Set(spenders)]; // no quiet hours for fans who have spent money (owner, 6 Nov 2026)
+    result.subscribers = [...new Set(subscribers)]; // owner, 12 Nov 2026: active subscribers are treated highest after VIPs
   } catch (err) {
     result.error ??= `supporters: ${err.status ?? "failed"}`;
   }
