@@ -82,7 +82,7 @@ export function pickPack(pool, h, count, nude, random, vip = false) {
 
 /** What photos this fan already got, from his chat (newest first). Mass messages that reached him count too. */
 export function salesHistory(messages, fanUuid, now, rules) {
-  const h = { seen: new Set(), offeredBefore: new Set(), freePhotos: 0, paidPhotos: 0, bought: 0, lastFreeAt: null, lastPaidAt: null, firstPaidAt: null, openPaid: 0 };
+  const h = { seen: new Set(), offeredBefore: new Set(), freePhotos: 0, paidPhotos: 0, paidPacks: 0, bought: 0, lastFreeAt: null, lastPaidAt: null, firstPaidAt: null, openPaid: 0 };
   for (const m of messages) {
     if (m.sender.uuid === fanUuid || !m.mediaUuids?.length) continue;
     const at = Date.parse(m.sentAt) || 0;
@@ -91,6 +91,7 @@ export function salesHistory(messages, fanUuid, now, rules) {
     if (m.pricing) {
       if (oneToOne) {
         h.paidPhotos++;
+        if (m.mediaUuids.length > 1) h.paidPacks++; // owner, 13 Nov 2026: a paid message with several photos is a pack
         h.lastPaidAt = Math.max(h.lastPaidAt ?? 0, at);
         h.firstPaidAt = Math.min(h.firstPaidAt ?? at, at);
       }
@@ -157,6 +158,11 @@ export function notBuyingRefusal(insights, h, now, rules, { vip, noSale }) {
   const minDays = rules.giveUpMinDays ?? 3;
   if (!h.firstPaidAt || now - h.firstPaidAt < minDays * DAY_MS)
     return `His first paid offer is less than ${minDays} days old. Give him more time.`;
+  // Owner, 13 Nov 2026: sell more extensively to likely non-spenders so the ignore decision is easy. Before he is dropped he must have
+  // seen both formats (a single photo and a pack with a free preview), unless he already had four offers.
+  const singles = h.paidPhotos - (h.paidPacks ?? 0);
+  if (h.paidPhotos < 4 && (singles < 1 || (h.paidPacks ?? 0) < 1))
+    return `He has not yet been offered both a single paid photo and a pack with a free preview (${singles} single, ${h.paidPacks ?? 0} pack). Offer the missing kind first, then judge.`;
   return null;
 }
 
