@@ -169,7 +169,7 @@ export const isHandedOver = (notes, now = Date.now()) =>
   splitNotes(notes).own.split("\n").some((line) => {
     if (!line.startsWith(STOP_LINE)) return false;
     const at = Number(/\[t=(\d+)\]/.exec(line)?.[1]);
-    return !at || now - at < HAND_OVER_TTL_MS;
+    return !!at && now - at < HAND_OVER_TTL_MS; // owner, 12 Nov 2026: an old line without a stamp no longer blocks a chat forever
   });
 
 const withOwn = (notes, own) => mergeNotes(own, splitNotes(notes).memory);

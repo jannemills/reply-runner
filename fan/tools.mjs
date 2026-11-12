@@ -243,6 +243,11 @@ export class JobTools {
         return this.#exclusive("You already replied.", () => this.#sendReply(String(args.text ?? "")), this.replied);
       case "hand_over": {
         const reason = String(args.reason ?? "");
+        if (this.vip) {
+          // Owner, 12 Nov 2026: a VIP is never stopped. The owner gets the alert, the bot keeps answering him.
+          this.alerts.push({ kind: "needs_person", reason });
+          return ok("Noted for the owner. He is a VIP: do not stop. Keep chatting and replying to him warmly now.");
+        }
         await this.api.putNotes(this.fanUuid, withStopLine(await this.api.getNotes(this.fanUuid), reason, belgradeNow(this.now()), this.now()));
         await this.api.markChatUnread(this.fanUuid).catch(() => {});
         this.alerts.push({ kind: "needs_person", reason });
