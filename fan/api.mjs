@@ -11,10 +11,21 @@ export class FanError extends Error {
 
 export function createApi(token, base = process.env.FAN_API_URL || "https://api.fanvue.com") {
   async function call(path, init = {}) {
-    const res = await fetch(`${base}${path}`, {
-      ...init,
-      headers: { Authorization: `Bearer ${token}`, "X-Fanvue-API-Version": VERSION, "Content-Type": "application/json" },
-    });
+    // 12 Nov 2026: a backlog of parallel jobs hit Fanvue's rate limit (429) and the replies were lost. Wait and retry,
+    // at most ~35 s in all, because a tool call times out after about a minute.
+    const started = Date.now();
+    let res;
+    for (let attempt = 0; ; attempt++) {
+      res = await fetch(`${base}${path}`, {
+        ...init,
+        headers: { Authorization: `Bearer ${token}`, "X-Fanvue-API-Version": VERSION, "Content-Type": "application/json" },
+      });
+      if (res.status !== 429 || attempt >= 4) break;
+      const asked = Number(res.headers.get("retry-after"));
+      const wait = (asked > 0 ? asked * 1000 : 2000 * 2 ** attempt) + Math.random() * 1500;
+      if (Date.now() - started + wait > 35_000) break;
+      await new Promise((r) => setTimeout(r, wait));
+    }
     if (!res.ok) throw new FanError(res.status, `${init.method ?? "GET"} ${path.split("?")[0]} failed: ${res.status}`);
     return res;
   }
