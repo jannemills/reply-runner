@@ -12,8 +12,10 @@ import {
   splitReply,
   stillNewest,
   typingDelayMs,
+  usedMomentSets,
   withReplyCount,
   withStopLine,
+  withUsedMomentSet,
 } from "./chat.mjs";
 import { buildPool, poolForFan, isFirstBuyer, notBuyingRefusal, paidCandidates, photoRefusal, pickPack, pickPhoto, profileText, salesHistory } from "./sales.mjs";
 
@@ -90,16 +92,17 @@ export const TOOLS = [
   {
     name: "send_moment_photos",
     description:
-      "Sends him the next free photo set he has not had yet (all its photos at once, free, in one message) with a neutral caption. Use it when he doubts you, in the flirt phase as a free warm-up when he is warm, or with scene taxi or home when he asks you for a current photo. The photos do not show the present moment: the caption never says now, trenutno, live, a place, a taxi or what you are doing, and never claims they are new or only for him. If he later asks whether they are from right now, say yes briefly, with no detail. Not a sell move: no price, nothing about what is in them. Free for every fan, VIPs included, with no daily limit: when he wants more photos, send the next set (one set per reply, never one he already has). It is refused only when he has had every set.",
+      "Sends him free photos from one \"in the moment\" set (a vault folder of photos from one scene and one moment) in one message, with a neutral caption. You choose how many of its photos go out (count; all of them when left out). Each set is used ONCE per fan: after this send the whole set is his used set and none of its photos can ever go to him again, also the ones you did not send, so for a fan who wants many photos send the whole set. read_fan_profile lists the sets still unused for him with their scene and size. Use it when he asks for more photos, normal or everyday photos, or a current photo, when he doubts you, as a free warm-up when he is warm, and as the free bonus after a purchase. The photos do not show the present moment: the caption never says now, trenutno, live, a place or what you are doing, and never claims they are new or only for him. If he later asks whether they are from right now, say yes briefly, with no detail. Not a sell move: no price, nothing about what is in them. Free for every fan, VIPs included, no daily limit; one set per reply (a VIP may get up to three sets in one reply). Refused when no unused set is left for him.",
     inputSchema: {
       type: "object",
       properties: {
         text: { type: "string", description: "A neutral playful word or two or an emoji. Nothing about time, place or what is in them, no price." },
         scene: {
           type: "string",
-          enum: ["taxi", "home"],
-          description: "Only when he asked you for a current photo (\"posalji mi trenutnu\"): taxi sends the set taken in a taxi, home the set taken at home, if he has not had it. Leave out otherwise.",
+          description:
+            "The scene of the set, as read_fan_profile lists it (e.g. home, taxi, bathrobe, chair, bathroom). Use it when he asked for a current photo, to stay consistent with what you told him (said you are home: a home set), or to pick a set. Leave out to get the next unused set (the same scene as his last set when one is left).",
         },
+        count: { type: "integer", minimum: 1, maximum: 20, description: "How many photos of the set to send. Leave out to send the whole set. The rest of the set is gone for him either way." },
       },
       required: ["text"],
       additionalProperties: false,
@@ -138,28 +141,40 @@ const MAX_CHAT_MESSAGES = 200;
 const SALES_HISTORY_MESSAGES = 500;
 const MAX_HOLD_MS = 40_000; // under the Action's one-minute MCP tool timeout
 const PAGE_SIZE = 50;
-// One scene at successive points in time (owner, 6 Nov 2026): sent in this order, one collection at a time.
-// Owner, 6 Nov 2026: "in the moment" was taken in a taxi, "in the moment 1" at home. Sent on request for a current photo.
+// Owner, 6 Nov 2026: "in the moment" was taken in a taxi, "in the moment 1" at home. The scene now comes from the "(scene)" in the
+// folder name (13 Nov 2026: home, bathrobe, chair, bathroom, entryway, restaurant, ...); these two cover old unnamed folders.
 export const MOMENT_SCENES = { taxi: 0, home: 1 };
 export const MOMENT_FOLDERS = ["in the moment", "in the moment 1", "in the moment 2", "in the moment 3", "in the moment 4", "in the moment 5"];
 
 /**
- * The moment folders as they are named in the vault right now, in time order. The owner renames them (6 Nov 2026:
- * "in the moment (taxi)", "in the moment 1 (home)", ...), so they are matched by "in the moment" + optional number and
- * an optional "(scene)". Returns [{ name, index, scene }] sorted by index; falls back to the fixed names.
+ * The moment folders as they are named in the vault right now, oldest first. The owner renames and adds them
+ * ("in the moment (taxi)", "in the moment 1 (home)", "in the moment (bathrobe)", "in the moment 7 (chair)", ...), so they are
+ * matched by "in the moment" + optional number + optional "(scene)". Returns [{ name, index, scene, createdAt }].
+ * Falls back to the fixed names when the folder list cannot be read.
  */
 export function momentFolders(folders) {
   const found = [];
   for (const f of folders ?? []) {
     // Owner, 13 Nov 2026: every vault folder whose name starts with "in the moment" is a free set, whatever follows.
     const m = /^in the moment\b\s*(\d+)?\s*(?:\(([^)]*)\))?/i.exec((f.name ?? "").trim());
-    if (m) found.push({ name: f.name, index: m[1] ? Number(m[1]) : 0, scene: (m[2] ?? "").trim().toLowerCase() || null });
+    if (m)
+      found.push({
+        name: f.name,
+        index: m[1] ? Number(m[1]) : 0,
+        scene: (m[2] ?? "").trim().toLowerCase() || (m[1] ? (Number(m[1]) === 1 ? "home" : null) : "taxi"),
+        createdAt: Date.parse(f.createdAt ?? "") || 0,
+      });
   }
-  if (!found.length) return MOMENT_FOLDERS.map((name, index) => ({ name, index, scene: index === 0 ? "taxi" : index === 1 ? "home" : null }));
-  return found.sort((a, b) => a.index - b.index || a.name.localeCompare(b.name));
+  if (!found.length) return MOMENT_FOLDERS.map((name, index) => ({ name, index, scene: index === 0 ? "taxi" : index === 1 ? "home" : null, createdAt: 0 }));
+  return found.sort((a, b) => a.createdAt - b.createdAt || a.index - b.index || a.name.localeCompare(b.name));
 }
 // Owner, 13 Nov 2026: the "in the moment" sets go out free to anyone, as often as the chat asks for them (was once per 24 hours).
 const MOMENT_GAP_MS = 0;
+// Owner, 13 Nov 2026: never the same photo to the same fan twice. Everything she ever sent him is read this far back.
+const EVER_SENT_MESSAGES = 3000;
+// Sets per reply: one, and up to three for a VIP (owner, 13 Nov 2026: the top spender wants many photos at once).
+const MOMENT_SETS_PER_REPLY = 1;
+const VIP_MOMENT_SETS_PER_REPLY = 3;
 
 const ok = (text) => ({ text });
 const refuse = (text) => ({ text, isError: true });
@@ -177,6 +192,7 @@ export class JobTools {
   sentUuid = undefined; // the newest message we sent: it anchors the follow-up
   photoSent = false;
   momentSent = false;
+  momentSets = 0; // sets sent in this reply
   wroteAgain = false;
   rebased = false;
   stopped = false;
@@ -186,6 +202,7 @@ export class JobTools {
   alerts = []; // { kind: "needs_person" | "offer", reason }
   #busy = false;
   #pool = null;
+  #everSent = null;
 
   /**
    * @param {object} o
@@ -256,17 +273,20 @@ export class JobTools {
         return ok("Handed over. Do not reply.");
       }
       case "read_fan_profile": {
-        const history = salesHistory(await this.readChat(SALES_HISTORY_MESSAGES), this.fanUuid, this.now(), this.rules);
+        const history = await this.#history(await this.readChat(SALES_HISTORY_MESSAGES));
         const insights = await this.api.getFanInsights(this.fanUuid).catch(() => null);
         const pool = await this.#getPool();
         const freeLeft = pool ? pool.free.filter((p) => !history.seen.has(p.uuid) && !history.offeredBefore.has(p.uuid)).length : 0;
         const paidLeft = pool ? paidCandidates(pool, history, this.vip).length : 0;
         // Owner, 6 Nov 2026: a top spender asked for photos three times and got only small talk because he had bought every paid photo.
-        const momentLeft = await this.#momentSetsLeft(history).catch(() => null);
+        const moment = await this.#momentSets().catch(() => null);
+        const momentLeft = moment ? moment.filter((s) => !s.used) : null;
         const photos = !pool
           ? "Photos: the photo stock could not be read this time (a temporary error, NOT out of stock). Do not hint at a photo in this reply and do not write anything about stock in your notes; check read_fan_profile again next time."
           : `Unseen photos left for him: ${freeLeft} free, ${paidLeft} paid.` +
-            (momentLeft ? ` Free "in the moment" sets left for him: ${momentLeft} (send_moment_photos, one set per reply, free for everyone, no limit).` : momentLeft === 0 ? ' No free "in the moment" sets left for him.' : "") +
+            (momentLeft?.length
+              ? ` Free "in the moment" sets still unused for him: ${momentLeft.length} (${momentLeft.map((s) => `${s.scene ?? "set"} ${s.uuids.length}`).join(", ")} photos; send_moment_photos, each set once per fan, free for everyone).`
+              : momentLeft ? ' No free "in the moment" set left for him: every set was used for him already.' : "") +
             (paidLeft
               ? this.vip && !pool.ppv.some((p) => !history.seen.has(p.uuid))
                 ? " His usual paid photos are used up; his paid offers now come from softer lingerie and warm-up photos, so price them a little below his usual (a pack of 3 to 5 around $12 to $25) and keep selling."
@@ -279,7 +299,11 @@ export class JobTools {
       case "send_ppv_pack":
         return this.#exclusive("One photo message per reply. Stop here.", () => this.#sendPack(args), this.photoSent);
       case "send_moment_photos":
-        return this.#exclusive("Already sent. Stop here.", () => this.#sendMomentPhotos(args), this.momentSent);
+        return this.#exclusive(
+          this.vip ? `At most ${VIP_MOMENT_SETS_PER_REPLY} sets per reply. Stop here.` : "One set per reply. Stop here.",
+          () => this.#sendMomentPhotos(args),
+          this.momentSets >= (this.vip ? VIP_MOMENT_SETS_PER_REPLY : MOMENT_SETS_PER_REPLY),
+        );
       case "ready_for_offer":
         if (this.noSale) return refuse("He is sold nothing after a refund or chargeback. Keep the chat warm and friendly.");
         this.alerts.push({ kind: "offer", reason: String(args.reason ?? "") });
@@ -335,7 +359,7 @@ export class JobTools {
     if (!messages || !asksForPhoto(newFanMessages(messages, this.fanUuid))) return false;
     const pool = await this.#getPool();
     if (!pool) return false;
-    const history = salesHistory(messages, this.fanUuid, this.now(), this.rules);
+    const history = await this.#history(messages);
     return pool.free.some((p) => !history.seen.has(p.uuid)) || paidCandidates(pool, history, this.vip).length > 0;
   }
 
@@ -348,8 +372,23 @@ export class JobTools {
         this.alerts.push({ kind: "offer", reason: "photo stock could not be read (check vault folders free and ppv)" });
         return null;
       })
+      .then((pool) => this.#withoutMomentMedia(pool))
       .then((pool) => poolForFan(pool, this.fanUuid));
     return this.#pool;
+  }
+
+  /**
+   * The free and paid pools without any photo that sits in an "in the moment" folder (owner, 13 Nov 2026): those go out only as
+   * part of their set, once per fan, so a single free or paid photo never breaks a set open or repeats one.
+   */
+  async #withoutMomentMedia(pool) {
+    if (!pool) return pool;
+    const named = momentFolders(await Promise.resolve().then(() => this.api.listFolders()).catch(() => null));
+    const media = await Promise.all(named.map(({ name }) => this.api.listFolderMedia(name).catch(() => [])));
+    const inSets = new Set(media.flat().map((m) => m.uuid));
+    if (!inSets.size) return pool;
+    const keep = (list) => (list ?? []).filter((p) => !inSets.has(p.uuid));
+    return { ...pool, free: keep(pool.free), ppv: keep(pool.ppv), preview: keep(pool.preview), vipExtra: keep(pool.vipExtra) };
   }
 
   /**
@@ -422,19 +461,59 @@ export class JobTools {
     this.replied = true;
   }
 
-  /** How many "in the moment" sets he has not had at all yet (null when the folders cannot be read). */
-  async #momentSetsLeft(history) {
-    const named = momentFolders(await Promise.resolve().then(() => this.api.listFolders()).catch(() => null));
-    const sets = await Promise.all(
-      named.map(({ name }) => this.api.listFolderMedia(name).then((media) => media.filter((m) => m.status === "ready" && m.mediaType === "image").map((m) => m.uuid)).catch(() => [])),
-    );
-    return sets.filter((u) => u.length && !u.some((x) => history.seen.has(x))).length;
+  /**
+   * Every media uuid she ever sent him (one-to-one and mass messages, paid or free), read once per job far back.
+   * Owner, 13 Nov 2026: the same photo never goes to the same fan twice.
+   */
+  #everSentMedia() {
+    this.#everSent ??= this.readChat(EVER_SENT_MESSAGES)
+      .then((messages) => new Set(messages.filter((m) => m.sender.uuid !== this.fanUuid).flatMap((m) => m.mediaUuids ?? [])))
+      .catch(() => null);
+    return this.#everSent;
+  }
+
+  /** Remembers what this job just sent, so a second send in the same job never repeats it. */
+  async #noteSent(uuids) {
+    const ever = await this.#everSentMedia();
+    if (ever) for (const u of uuids) ever.add(u);
+  }
+
+  /** His sales history, with every photo he ever got from her counted as seen (never send one twice). */
+  async #history(messages) {
+    const history = salesHistory(messages, this.fanUuid, this.now(), this.rules);
+    const ever = await this.#everSentMedia();
+    if (ever) for (const u of ever) history.seen.add(u);
+    return history;
   }
 
   /**
-   * The next "in the moment" collection he has not had, all its photos in one free message. The folders are one scene at
-   * successive points in time, so they go out in order, one collection per send, never the same one twice. No daily
-   * limit (owner, 13 Nov 2026), and no first-buyer free-photo cap: they are free for everyone.
+   * The "in the moment" sets and whether each is used for him: named in his note's used line, or any of its photos ever sent
+   * to him (owner, 13 Nov 2026: one set is used once per fan, then forgotten for him). Null when the folders cannot be read.
+   */
+  async #momentSets() {
+    const named = momentFolders(await Promise.resolve().then(() => this.api.listFolders()).catch(() => null));
+    const [notes, ever, media] = await Promise.all([
+      this.api.getNotes(this.fanUuid).catch(() => ""),
+      this.#everSentMedia(),
+      Promise.all(
+        named.map(({ name }) =>
+          this.api
+            .listFolderMedia(name)
+            .then((list) => list.filter((m) => m.status === "ready" && m.mediaType === "image").map((m) => m.uuid))
+            .catch(() => []),
+        ),
+      ),
+    ]);
+    const usedNames = usedMomentSets(notes);
+    return named
+      .map((f, i) => ({ ...f, uuids: media[i], used: usedNames.has(f.name.trim().toLowerCase()) || media[i].some((u) => ever?.has(u)) }))
+      .filter((f) => f.uuids.length);
+  }
+
+  /**
+   * Free photos from one "in the moment" set he never had, in one message. Owner, 13 Nov 2026: each set is used once per fan;
+   * the model picks how many of its photos go out, and the whole set is then his used set (written into his note) and is
+   * never sent to him again. No daily limit, no first-buyer free-photo cap: free for everyone.
    */
   async #sendMomentPhotos(args) {
     const { api, fanUuid } = this;
@@ -451,48 +530,40 @@ export class JobTools {
       this.wroteAgain = true;
       return refuse("The chat changed. Send nothing more. Stop here.");
     }
-    const sentAt = new Map(); // media uuid -> when we sent it to him
-    for (const m of messages) if (m.sender.uuid !== fanUuid) for (const u of m.mediaUuids ?? []) sentAt.set(u, Date.parse(m.sentAt) || 0);
-    const named = momentFolders(await Promise.resolve().then(() => api.listFolders()).catch(() => null));
-    const folders = await Promise.all(
-      named.map(({ name }) =>
-        api
-          .listFolderMedia(name)
-          .then((media) => media.filter((m) => m.status === "ready" && m.mediaType === "image").map((m) => m.uuid))
-          .catch(() => []),
-      ),
-    );
-    const scene = Object.hasOwn(MOMENT_SCENES, args.scene) ? args.scene : null;
-    let uuids;
-    if (scene) {
-      // He asked for a current photo: the taxi or home set, only if he never had it (no daily limit for a request).
-      const other = scene === "taxi" ? "home" : "taxi";
-      // The sets of this scene in time order (a folder named "(home)" or, unnamed, the old fixed position).
-      const ofScene = (s) => named.map((f, i) => ({ f, i })).filter(({ f }) => (f.scene ? f.scene === s : f.index === MOMENT_SCENES[s])).map(({ i }) => folders[i]).filter((u) => u.length);
-      const sets = ofScene(scene);
-      const set = sets.find((u) => !u.some((x) => sentAt.has(x))) ?? [];
-      if (!sets.length) return refuse("No such photos are available. Just answer in words.");
-      if (!set.length)
-        return refuse(ofScene(other).every((u) => u.some((x) => sentAt.has(x)))
-          ? "He already had both current sets. Send none: answer in words."
-          : `He already had the ${scene} set. Send the ${other} set if it fits what you told him, or answer in words.`);
-      uuids = set;
+    const ever = await this.#everSentMedia();
+    if (!ever) return refuse("His photo history could not be read this time. Send no set now; answer in words.");
+    const sets = await this.#momentSets().catch(() => null);
+    if (!sets) return refuse("The photo sets could not be read this time. Send no set now; answer in words.");
+    const unused = sets.filter((s) => !s.used);
+    if (!unused.length) return refuse(sets.length ? "He already had every photo set. Send none: answer in words, without promising a photo later." : "No such photos are available. Just answer in words.");
+    const wanted = String(args.scene ?? "").trim().toLowerCase();
+    let set;
+    if (wanted) {
+      set = unused.find((s) => s.scene === wanted) ?? unused.find((s) => s.name.toLowerCase().includes(wanted));
+      if (!set) {
+        const scenes = [...new Set(unused.map((s) => s.scene).filter(Boolean))];
+        return refuse(`No unused ${wanted} set is left for him. Unused scenes: ${scenes.join(", ") || "none named"}. Pick one that fits what you told him, or answer in words.`);
+      }
     } else {
-      const lastMoment = Math.max(0, ...folders.flat().map((u) => sentAt.get(u) ?? 0));
-      if (MOMENT_GAP_MS && lastMoment && this.now() - lastMoment < MOMENT_GAP_MS)
-        return refuse("He got a photo set less than a day ago. No more today: just answer in words.");
-      // Next in time order after the latest collection he already has.
-      const lastIndex = folders.findLastIndex((f) => f.some((u) => sentAt.has(u)));
-      uuids = folders.slice(lastIndex + 1).find((f) => f.length);
-      if (!uuids) return refuse(lastIndex >= 0 ? "He already got every photo set. Do not send them again." : "No such photos are available. Just answer in words.");
+      // Stay with the scene of his latest set when one is left, else the oldest unused set.
+      const last = sets.filter((s) => s.used && s.scene).at(-1);
+      set = (last && unused.find((s) => s.scene === last.scene)) ?? unused[0];
     }
+    const photos = set.uuids.filter((u) => !ever.has(u));
+    const count = args.count === undefined ? photos.length : Math.min(Math.max(Math.trunc(Number(args.count)) || 1, 1), photos.length);
+    const uuids = photos.slice(0, count);
+    if (!uuids.length) return refuse("That set has no photo left for him. Answer in words.");
     if (this.replied) await this.sleep(typingDelayMs(text));
     await api.sendPhotos(fanUuid, text, uuids);
+    // The set is used for him now, also the photos he did not get. The note keeps it beyond any chat window.
+    await api.putNotes(fanUuid, withUsedMomentSet(await api.getNotes(fanUuid), set.name)).catch(() => {});
+    await this.#noteSent(uuids);
     const newest = (await api.fetchMessages(fanUuid).catch(() => []))[0];
     if (newest && newest.sender.uuid !== fanUuid) this.sentUuid = newest.uuid;
     this.replied = true;
     this.momentSent = true;
-    return ok(`Sent ${uuids.length} photos.`);
+    this.momentSets++;
+    return ok(`Sent ${uuids.length} photos from the ${set.scene ?? "photo"} set. That set is used for him now.`);
   }
 
   /** Several paid photos in one message with one free preview. Same gates as a paid photo; wider price range. */
@@ -518,7 +589,7 @@ export class JobTools {
       this.wroteAgain = true;
       return refuse("The chat changed. Send nothing more. Stop here.");
     }
-    const history = salesHistory(messages, fanUuid, this.now(), rules);
+    const history = await this.#history(messages);
     const firstBuyer = isFirstBuyer(await api.getFanInsights(fanUuid).catch(() => null), history, this.vip);
     // Same open-photo limit (maxOpenPaid) and waiting time as a single paid photo; never a pack as his first offer.
     const refusal = photoRefusal("pack", history, this.now(), rules.minPriceUsd, rules, firstBuyer);
@@ -529,6 +600,7 @@ export class JobTools {
 
     if (this.replied) await this.sleep(typingDelayMs(text));
     await api.sendPpvPack(fanUuid, text, [pack.preview, ...pack.photos], pack.preview, priceUsd * 100);
+    await this.#noteSent([pack.preview, ...pack.photos]);
     const newest = (await api.fetchMessages(fanUuid).catch(() => []))[0];
     if (newest && newest.sender.uuid !== fanUuid) this.sentUuid = newest.uuid;
     this.replied = true;
@@ -556,7 +628,7 @@ export class JobTools {
       this.wroteAgain = true;
       return refuse("The chat changed. Send nothing more. Stop here.");
     }
-    const history = salesHistory(messages, fanUuid, this.now(), rules);
+    const history = await this.#history(messages);
     const firstBuyer = isFirstBuyer(await api.getFanInsights(fanUuid).catch(() => null), history, this.vip);
     const refusal = photoRefusal(kind, history, this.now(), priceUsd, rules, firstBuyer);
     if (refusal) return refuse(refusal);
@@ -571,6 +643,7 @@ export class JobTools {
 
     if (this.replied) await this.sleep(typingDelayMs(text));
     await api.sendPhoto(fanUuid, text, photo, kind === "paid" ? priceUsd * 100 : undefined);
+    await this.#noteSent([photo]);
     const newest = (await api.fetchMessages(fanUuid).catch(() => []))[0];
     if (newest && newest.sender.uuid !== fanUuid) this.sentUuid = newest.uuid;
     this.replied = true;

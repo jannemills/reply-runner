@@ -191,3 +191,23 @@ export function withReplyCount(notes) {
   else lines[at] = line;
   return withOwn(notes, lines.join("\n"));
 }
+
+// Owner, 13 Nov 2026: an "in the moment" folder is used once per fan. After one or more of its photos went to him, the whole
+// folder is his "used" set and none of it is ever sent to him again. Kept in your part of his note, so it outlasts any chat window.
+const MOMENT_LINE = "Moment sets used:";
+const momentKey = (name) => String(name ?? "").trim().toLowerCase();
+
+/** The "in the moment" folder names already used for him (lower case). */
+export function usedMomentSets(notes) {
+  const line = splitNotes(notes).own.split("\n").find((l) => l.startsWith(MOMENT_LINE));
+  return new Set((line ? line.slice(MOMENT_LINE.length) : "").split("|").map(momentKey).filter(Boolean));
+}
+
+/** The note with this folder added to his used sets. */
+export function withUsedMomentSet(notes, name) {
+  const used = usedMomentSets(notes);
+  used.add(momentKey(name));
+  const lines = splitNotes(notes).own.split("\n").filter((l) => l && !l.startsWith(MOMENT_LINE));
+  lines.push(`${MOMENT_LINE} ${[...used].join(" | ")}`);
+  return withOwn(notes, lines.join("\n"));
+}
