@@ -56,6 +56,11 @@ export function createApi(token, base = process.env.FAN_API_URL || "https://api.
       const body = await (await call(`/chats?userUuids=${userUuid}&size=1`)).json();
       return !!body.data?.[0]?.isCreator;
     },
+    /** The custom lists this fan is on (uuids). */
+    async fanLists(userUuid) {
+      const body = await (await call(`/chats?userUuids=${userUuid}&size=1`)).json();
+      return (body.data?.[0]?.customLists ?? []).map((l) => l.uuid);
+    },
     /** One page, newest first. Pass the oldest uuid seen so far to get the page before it. */
     async fetchMessages(fanUuid, before) {
       const anchor = before ? `&beforeMessageUuid=${before}` : "";

@@ -34,6 +34,10 @@ if (jobRes.status === 404) {
   try {
     await reply();
   } catch (err) {
+    // Chat review, 14 Nov 2026: 185 replies failed in two hours and the log said nothing. Print only a fixed category, never the message.
+    const msg = String(err?.message ?? "");
+    const kind = /claude failed: .*limit/i.test(msg) ? "claude_usage_limit" : /claude failed: .*authenticate/i.test(msg) ? "claude_login" : msg.startsWith("claude") ? "claude_other" : err?.status ? `fanvue_${err.status}` : "other";
+    console.log(`error kind: ${kind}`);
     // The status of a Fanvue error is passed on (400 means he cannot be contacted); the message may name the fan, so it stays private.
     await post("", { error: err.message, errorStatus: err.status });
     process.exitCode = 1;
@@ -144,6 +148,9 @@ if (jobRes.status === 404) {
     const agent = await promptRes.json();
     // His comment goes to the model here, never through the Worker.
     if (comment) agent.prompt = `${agent.prompt}\n\n<his_comment>\n${comment}\n</his_comment>`;
+    // Chat review, 14 Nov 2026: a fan on the English (USA) list got Serbian until he asked "English?".
+    if (job.usaListUuid && (await api.fanLists(fanUuid).catch(() => [])).includes(job.usaListUuid))
+      agent.prompt = `${agent.prompt}\n\nHe is on your English list: write to him in English, also if earlier messages or automations to him were in Serbian, unless he himself writes to you in another language.`;
 
     const tools = new JobTools({
       api,
