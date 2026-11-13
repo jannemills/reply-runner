@@ -90,7 +90,7 @@ export const TOOLS = [
   {
     name: "send_moment_photos",
     description:
-      "Sends him the next free photo set he has not had yet (all its photos at once, free, in one message) with a neutral caption. Use it when he doubts you, in the flirt phase as a free warm-up when he is warm, or with scene taxi or home when he asks you for a current photo. The photos do not show the present moment: the caption never says now, trenutno, live, a place, a taxi or what you are doing, and never claims they are new or only for him. If he later asks whether they are from right now, say yes briefly, with no detail. Not a sell move: no price, nothing about what is in them. At most one set per fan per day; it is refused if he had one in the last 24 hours.",
+      "Sends him the next free photo set he has not had yet (all its photos at once, free, in one message) with a neutral caption. Use it when he doubts you, in the flirt phase as a free warm-up when he is warm, or with scene taxi or home when he asks you for a current photo. The photos do not show the present moment: the caption never says now, trenutno, live, a place, a taxi or what you are doing, and never claims they are new or only for him. If he later asks whether they are from right now, say yes briefly, with no detail. Not a sell move: no price, nothing about what is in them. Free for every fan, VIPs included, with no daily limit: when he wants more photos, send the next set (one set per reply, never one he already has). It is refused only when he has had every set.",
     inputSchema: {
       type: "object",
       properties: {
@@ -151,13 +151,15 @@ export const MOMENT_FOLDERS = ["in the moment", "in the moment 1", "in the momen
 export function momentFolders(folders) {
   const found = [];
   for (const f of folders ?? []) {
-    const m = /^in the moment(?:\s+(\d+))?\s*(?:\(([^)]*)\))?\s*$/i.exec((f.name ?? "").trim());
+    // Owner, 13 Nov 2026: every vault folder whose name starts with "in the moment" is a free set, whatever follows.
+    const m = /^in the moment\b\s*(\d+)?\s*(?:\(([^)]*)\))?/i.exec((f.name ?? "").trim());
     if (m) found.push({ name: f.name, index: m[1] ? Number(m[1]) : 0, scene: (m[2] ?? "").trim().toLowerCase() || null });
   }
   if (!found.length) return MOMENT_FOLDERS.map((name, index) => ({ name, index, scene: index === 0 ? "taxi" : index === 1 ? "home" : null }));
-  return found.sort((a, b) => a.index - b.index);
+  return found.sort((a, b) => a.index - b.index || a.name.localeCompare(b.name));
 }
-const MOMENT_GAP_MS = 24 * 60 * 60 * 1000;
+// Owner, 13 Nov 2026: the "in the moment" sets go out free to anyone, as often as the chat asks for them (was once per 24 hours).
+const MOMENT_GAP_MS = 0;
 
 const ok = (text) => ({ text });
 const refuse = (text) => ({ text, isError: true });
@@ -260,9 +262,11 @@ export class JobTools {
         const freeLeft = pool ? pool.free.filter((p) => !history.seen.has(p.uuid) && !history.offeredBefore.has(p.uuid)).length : 0;
         const paidLeft = pool ? paidCandidates(pool, history, this.vip).length : 0;
         // Owner, 6 Nov 2026: a top spender asked for photos three times and got only small talk because he had bought every paid photo.
+        const momentLeft = await this.#momentSetsLeft(history).catch(() => null);
         const photos = !pool
           ? "Photos: the photo stock could not be read this time (a temporary error, NOT out of stock). Do not hint at a photo in this reply and do not write anything about stock in your notes; check read_fan_profile again next time."
           : `Unseen photos left for him: ${freeLeft} free, ${paidLeft} paid.` +
+            (momentLeft ? ` Free "in the moment" sets left for him: ${momentLeft} (send_moment_photos, one set per reply, free for everyone, no limit).` : momentLeft === 0 ? ' No free "in the moment" sets left for him.' : "") +
             (paidLeft
               ? this.vip && !pool.ppv.some((p) => !history.seen.has(p.uuid))
                 ? " His usual paid photos are used up; his paid offers now come from softer lingerie and warm-up photos, so price them a little below his usual (a pack of 3 to 5 around $12 to $25) and keep selling."
@@ -418,10 +422,19 @@ export class JobTools {
     this.replied = true;
   }
 
+  /** How many "in the moment" sets he has not had at all yet (null when the folders cannot be read). */
+  async #momentSetsLeft(history) {
+    const named = momentFolders(await Promise.resolve().then(() => this.api.listFolders()).catch(() => null));
+    const sets = await Promise.all(
+      named.map(({ name }) => this.api.listFolderMedia(name).then((media) => media.filter((m) => m.status === "ready" && m.mediaType === "image").map((m) => m.uuid)).catch(() => [])),
+    );
+    return sets.filter((u) => u.length && !u.some((x) => history.seen.has(x))).length;
+  }
+
   /**
    * The next "in the moment" collection he has not had, all its photos in one free message. The folders are one scene at
-   * successive points in time, so they go out in order, one collection per send, never the same one twice and at most
-   * one per MOMENT_GAP_MS for a fan.
+   * successive points in time, so they go out in order, one collection per send, never the same one twice. No daily
+   * limit (owner, 13 Nov 2026), and no first-buyer free-photo cap: they are free for everyone.
    */
   async #sendMomentPhotos(args) {
     const { api, fanUuid } = this;
@@ -466,7 +479,7 @@ export class JobTools {
       uuids = set;
     } else {
       const lastMoment = Math.max(0, ...folders.flat().map((u) => sentAt.get(u) ?? 0));
-      if (lastMoment && this.now() - lastMoment < MOMENT_GAP_MS)
+      if (MOMENT_GAP_MS && lastMoment && this.now() - lastMoment < MOMENT_GAP_MS)
         return refuse("He got a photo set less than a day ago. No more today: just answer in words.");
       // Next in time order after the latest collection he already has.
       const lastIndex = folders.findLastIndex((f) => f.some((u) => sentAt.has(u)));
