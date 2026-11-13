@@ -44,6 +44,29 @@ function ownLine(m, now) {
 /** A message Andrea typed herself: a plain one-to-one message sent from no app (owner, 6 Nov 2026: her style is the one to copy). */
 const typedByHer = (m) => m.type === "SINGLE_RECIPIENT" && m.appUuid === null;
 
+/** When Andrea last typed in this chat herself (ms), or 0. Chat review, 14 Nov 2026: the bot answered seconds after her. */
+export const herLastTypedAt = (newestFirst, fanUuid) => {
+  const m = newestFirst.find((x) => x.sender.uuid !== fanUuid && typedByHer(x));
+  return m ? Date.parse(m.sentAt) || 0 : 0;
+};
+
+/**
+ * How many separate times she wrote since his last message (personal messages only; parts sent within 10 minutes count
+ * once). Chat review, 14 Nov 2026: up to five check-ins in a row went unanswered.
+ */
+export function unansweredRuns(newestFirst, fanUuid) {
+  let runs = 0;
+  let prev = null;
+  for (const m of newestFirst) {
+    if (isAutomatedOrBroadcast(m)) continue;
+    if (m.sender.uuid === fanUuid) break;
+    const at = Date.parse(m.sentAt) || 0;
+    if (prev == null || prev - at > 10 * 60_000) runs++;
+    prev = at;
+  }
+  return runs;
+}
+
 /** Readable chat for Claude, oldest first. */
 export function formatChat(newestFirst, fanUuid, now) {
   return [...newestFirst]
@@ -171,6 +194,18 @@ export const isHandedOver = (notes, now = Date.now()) =>
     const at = Number(/\[t=(\d+)\]/.exec(line)?.[1]);
     return !!at && now - at < HAND_OVER_TTL_MS; // owner, 12 Nov 2026: an old line without a stamp no longer blocks a chat forever
   });
+
+// Chat review, 14 Nov 2026: a chat handed over for the same reason was handed over again every 3 hours, so nobody answered
+// him for 8+ hours. After the 3 hours run out, the same reason is not handed over again for this long: the bot answers him.
+export const HAND_OVER_REPEAT_MS = 24 * 60 * 60 * 1000;
+export const handedOverBefore = (notes, reason, now = Date.now()) => {
+  const why = STOP_REASONS[reason] ?? "he needs a person";
+  return splitNotes(notes).own.split("\n").some((line) => {
+    if (!line.startsWith(`${STOP_LINE}: ${why} (`)) return false;
+    const at = Number(/\[t=(\d+)\]/.exec(line)?.[1]);
+    return !!at && now - at < HAND_OVER_REPEAT_MS;
+  });
+};
 
 const withOwn = (notes, own) => mergeNotes(own, splitNotes(notes).memory);
 

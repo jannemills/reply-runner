@@ -4,6 +4,7 @@ import {
   finalText,
   formatChat,
   formatResearchChat,
+  handedOverBefore,
   isHandedOver,
   mergeNotes,
   newFanMessages,
@@ -17,7 +18,7 @@ import {
   withStopLine,
   withUsedMomentSet,
 } from "./chat.mjs";
-import { buildPool, poolForFan, isFirstBuyer, notBuyingRefusal, paidCandidates, photoRefusal, pickPack, pickPhoto, profileText, salesHistory } from "./sales.mjs";
+import { buildPool, poolForFan, isFirstBuyer, MAX_FREE_STREAK, VIP_MAX_FREE_STREAK, notBuyingRefusal, paidCandidates, photoRefusal, pickPack, pickPhoto, profileText, salesHistory } from "./sales.mjs";
 
 const none = { type: "object", properties: {}, additionalProperties: false };
 
@@ -92,7 +93,7 @@ export const TOOLS = [
   {
     name: "send_moment_photos",
     description:
-      "Sends him free photos from one \"in the moment\" set (a vault folder of photos from one scene and one moment) in one message, with a neutral caption. You choose how many of its photos go out (count; all of them when left out). Each set is used ONCE per fan: after this send the whole set is his used set and none of its photos can ever go to him again, also the ones you did not send, so for a fan who wants many photos send the whole set. read_fan_profile lists the sets still unused for him with their scene and size. Use it when he asks for more photos, normal or everyday photos, or a current photo, when he doubts you, as a free warm-up when he is warm, and as the free bonus after a purchase. The photos do not show the present moment: the caption never says now, trenutno, live, a place or what you are doing, and never claims they are new or only for him. If he later asks whether they are from right now, say yes briefly, with no detail. Not a sell move: no price, nothing about what is in them. Free for every fan, VIPs included, no daily limit; one set per reply (a VIP may get up to three sets in one reply). Refused when no unused set is left for him.",
+      "Sends him free photos from one \"in the moment\" set (a vault folder of photos from one scene and one moment) in one message, with a neutral caption. You choose how many of its photos go out (count; all of them when left out). Each set is used ONCE per fan: after this send the whole set is his used set and none of its photos can ever go to him again, also the ones you did not send, so for a fan who wants many photos send the whole set. read_fan_profile lists the sets still unused for him with their scene and size. Use it when he asks for more photos, normal or everyday photos, or a current photo, when he doubts you, as a free warm-up when he is warm, and as the free bonus after a purchase. The photos do not show the present moment: the caption never says now, trenutno, live, a place or what you are doing, and never claims they are new or only for him. If he later asks whether they are from right now, say yes briefly, with no detail. Not a sell move: no price, nothing about what is in them. Free for every fan, VIPs included, no daily limit, but never more than two free photo messages in a row without a paid offer between them (refused then: sell a small paid single instead); one set per reply (a VIP may get up to three sets in one reply). Refused when no unused set is left for him.",
     inputSchema: {
       type: "object",
       properties: {
@@ -267,7 +268,12 @@ export class JobTools {
           this.alerts.push({ kind: "needs_person", reason });
           return ok("Noted for the owner. He is a VIP: do not stop. Keep chatting and replying to him warmly now.");
         }
-        await this.api.putNotes(this.fanUuid, withStopLine(await this.api.getNotes(this.fanUuid), reason, belgradeNow(this.now()), this.now()));
+        const notesNow = await this.api.getNotes(this.fanUuid);
+        if (handedOverBefore(notesNow, reason, this.now())) {
+          this.alerts.push({ kind: "needs_person", reason: `${reason} again, bot answers` });
+          return ok("This chat was already handed over for this in the last day and nobody took it. Do not hand over again: answer him yourself now, warmly, following your rules, and keep selling where it fits.");
+        }
+        await this.api.putNotes(this.fanUuid, withStopLine(notesNow, reason, belgradeNow(this.now()), this.now()));
         await this.api.markChatUnread(this.fanUuid).catch(() => {});
         this.alerts.push({ kind: "needs_person", reason });
         return ok("Handed over. Do not reply.");
@@ -530,6 +536,10 @@ export class JobTools {
       this.wroteAgain = true;
       return refuse("The chat changed. Send nothing more. Stop here.");
     }
+    // Chat review, 14 Nov 2026: free sets in a row with no paid offer between them sold nothing. The purchase bonus and a tip thank-you always go.
+    const streak = salesHistory(messages, fanUuid, this.now(), this.rules).freeStreak;
+    if (!this.thanks && streak >= (this.vip ? VIP_MAX_FREE_STREAK : MAX_FREE_STREAK))
+      return refuse(`He has had ${streak} free photo messages in a row with no paid offer after them. No free set now: send a small paid single of what he asked for (at or below his last price) with send_photo, and give a set as the bonus when he buys.`);
     const ever = await this.#everSentMedia();
     if (!ever) return refuse("His photo history could not be read this time. Send no set now; answer in words.");
     const sets = await this.#momentSets().catch(() => null);
@@ -629,6 +639,8 @@ export class JobTools {
       return refuse("The chat changed. Send nothing more. Stop here.");
     }
     const history = await this.#history(messages);
+    if (this.thanks) history.freeStreak = 0; // the thank-you photo for a tip or purchase always goes
+    history.freeStreakLimit = this.vip ? VIP_MAX_FREE_STREAK : MAX_FREE_STREAK;
     const firstBuyer = isFirstBuyer(await api.getFanInsights(fanUuid).catch(() => null), history, this.vip);
     const refusal = photoRefusal(kind, history, this.now(), priceUsd, rules, firstBuyer);
     if (refusal) return refuse(refusal);

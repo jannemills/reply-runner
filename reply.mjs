@@ -3,7 +3,7 @@
 // Never print the job, the chat or Claude's output: this log is public.
 import { createApi } from "./fan/api.mjs";
 import { runAgent, runFilter } from "./fan/claude.mjs";
-import { answeredSince, freePhotoSince, isHandedOver, needsReply, newCreatorMessages, newFanMessages, newestPersonal, reactedTo, researchNeedsReply, stillNewest } from "./fan/chat.mjs";
+import { answeredSince, freePhotoSince, herLastTypedAt, isHandedOver, needsReply, newCreatorMessages, newFanMessages, newestPersonal, reactedTo, researchNeedsReply, stillNewest, unansweredRuns } from "./fan/chat.mjs";
 import { startToolServer } from "./fan/mcp.mjs";
 import { JobTools, RESEARCH_TOOLS, TOOLS } from "./fan/tools.mjs";
 
@@ -11,6 +11,8 @@ const { JOB_ID, WORKER_URL, JOB_SECRET } = process.env;
 if (!/^[0-9a-f-]{36}$/.test(JOB_ID ?? "")) throw new Error("bad job id");
 
 // A like or comment on her post gets a message only if she has not written to him in this long (no double texting).
+const OWNER_ACTIVE_MS = 8 * 60_000; // the bot keeps out of a chat this long after Andrea typed in it herself (job timeout is 15 min)
+const MAX_UNANSWERED_RUNS = 2;      // no follow-up or check-in once she already wrote this many times without an answer
 
 const jobUrl = `${WORKER_URL}/job/${JOB_ID}`;
 const headers = { "x-job-secret": JOB_SECRET, "Content-Type": "application/json" };
@@ -80,9 +82,17 @@ if (jobRes.status === 404) {
     if (!job.research && (await api.isCreator(fanUuid).catch(() => false))) return void (await post("", { done: true, skipped: "creator", creator: true }));
     if (isHandedOver(await api.getNotes(fanUuid))) return void (await post("", { done: true, skipped: "handed_over" }));
 
-    const messages = await api.fetchMessages(fanUuid);
-    const wrote = needsReply(messages, fanUuid);
+    let messages = await api.fetchMessages(fanUuid);
     if (job.research) return research(messages, researchNeedsReply(messages, fanUuid));
+    // Chat review, 14 Nov 2026: the bot answered seconds after Andrea typed herself. While she is in the chat, wait until
+    // OWNER_ACTIVE_MS has passed since her last own message, then look again (she may have answered him).
+    const herAt = herLastTypedAt(messages, fanUuid);
+    if (herAt && Date.now() - herAt < OWNER_ACTIVE_MS) {
+      await new Promise((r) => setTimeout(r, OWNER_ACTIVE_MS - (Date.now() - herAt)));
+      messages = await api.fetchMessages(fanUuid);
+      if (Date.now() - herLastTypedAt(messages, fanUuid) < OWNER_ACTIVE_MS) return void (await post("", { done: true, skipped: "answered" }));
+    }
+    const wrote = needsReply(messages, fanUuid);
     const newest = messages[0];
     const hersNewest = newestPersonal(messages);
     // A tip is thanked unless a person has answered him since; a thank-you is never a follow-up.
@@ -108,6 +118,10 @@ if (jobRes.status === 404) {
       quietNeededHours > 0 && quietMs >= quietNeededHours * 3600_000;
     const followUp = !thanks && !reaction && !engaged && !reengage && !!job.followUpAfter && stillNewest(messages, job.followUpAfter);
     if (!wrote && !followUp && !thanks && !reaction && !engaged && !reengage) return void (await post("", { done: true, skipped: "answered" })); // someone answered him by hand
+    // Chat review, 14 Nov 2026: at most two unanswered messages in a row from her before he writes again (a check-in the owner asked for still goes).
+    const ownerAsked = !!job.reengage && job.reengage.quietHours < 0.1;
+    if ((followUp || reengage) && !ownerAsked && unansweredRuns(messages, fanUuid) >= MAX_UNANSWERED_RUNS)
+      return void (await post("", { done: true, skipped: "answered" }));
 
     const verdict = await runFilter({
       ...job.filter,

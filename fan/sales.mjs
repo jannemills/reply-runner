@@ -1,6 +1,10 @@
 // The sell phase. The numbers (prices, waiting times, the price guide) come from the Worker with each job as `rules`.
 
 const DAY_MS = 24 * 3600_000;
+// Chat review, 14 Nov 2026: free photos in a row with no paid offer between them sold nothing (28 free in 10 minutes, 0 sales).
+const FREE_STREAK_HOURS = 12;
+export const MAX_FREE_STREAK = 2;
+export const VIP_MAX_FREE_STREAK = 3; // owner, 13 Nov 2026: a VIP may get up to three sets in one reply
 
 const isAiRefurbished = (m) => /ai image/i.test(m.name ?? "");
 
@@ -82,13 +86,22 @@ export function pickPack(pool, h, count, nude, random, vip = false) {
 
 /** What photos this fan already got, from his chat (newest first). Mass messages that reached him count too. */
 export function salesHistory(messages, fanUuid, now, rules) {
-  const h = { seen: new Set(), offeredBefore: new Set(), freePhotos: 0, paidPhotos: 0, paidPacks: 0, bought: 0, lastFreeAt: null, lastPaidAt: null, firstPaidAt: null, openPaid: 0 };
+  // freeStreak: free photo messages to him since the newest paid one, within FREE_STREAK_HOURS (chat review, 14 Nov 2026).
+  // lastBoughtSingleUsd: the price of the newest single paid photo he bought.
+  const h = { seen: new Set(), offeredBefore: new Set(), freePhotos: 0, paidPhotos: 0, paidPacks: 0, bought: 0, lastFreeAt: null, lastPaidAt: null, firstPaidAt: null, openPaid: 0, freeStreak: 0, lastBoughtSingleUsd: null };
+  let streakOpen = true;
   for (const m of messages) {
     if (m.sender.uuid === fanUuid || !m.mediaUuids?.length) continue;
     const at = Date.parse(m.sentAt) || 0;
     const recent = now - at < rules.openPpvDays * DAY_MS;
     const oneToOne = m.type === "SINGLE_RECIPIENT";
+    if (oneToOne && streakOpen) {
+      if (m.pricing || now - at > FREE_STREAK_HOURS * 3600_000) streakOpen = false;
+      else h.freeStreak++;
+    }
     if (m.pricing) {
+      const cents = m.pricing?.USD?.price;
+      if (oneToOne && m.purchasedAt && m.mediaUuids.length === 1 && h.lastBoughtSingleUsd == null && cents != null) h.lastBoughtSingleUsd = cents / 100;
       if (oneToOne) {
         h.paidPhotos++;
         if (m.mediaUuids.length > 1) h.paidPacks++; // owner, 13 Nov 2026: a paid message with several photos is a pack
@@ -126,7 +139,10 @@ export function photoRefusal(kind, h, now, priceUsd, rules, firstBuyer = false) 
     if (kind === "pack")
       return `He has never paid anything: his first offer is one single paid photo with send_photo at ${range}, not a pack.`;
   }
+  const isPack = kind === "pack";
   if (kind === "pack") kind = "paid";
+  if (kind === "free" && h.freeStreak >= (h.freeStreakLimit ?? MAX_FREE_STREAK))
+    return `He has had ${h.freeStreak} free photo messages in a row with no paid offer after them. No more free ones now: send a small paid single of what he asked for (at or below his last price), then a free bonus when he buys.`;
   if (kind === "free") {
     if (h.lastFreeAt && now - h.lastFreeAt < rules.freePhotoDays * DAY_MS)
       return `He got a free photo in the last ${rules.freePhotoDays} days. No new one yet.`;
@@ -134,6 +150,12 @@ export function photoRefusal(kind, h, now, priceUsd, rules, firstBuyer = false) 
   }
   if (!Number.isInteger(priceUsd) || priceUsd < rules.minPriceUsd || priceUsd > rules.maxPriceUsd)
     return `Choose a whole-dollar price from ${rules.minPriceUsd} to ${rules.maxPriceUsd}.`;
+  // Chat review, 14 Nov 2026: jumps of 20-50% right after a purchase sold 0 of 4. A single goes at most $5 (or 15%) above his last bought single.
+  if (!isPack && h.lastBoughtSingleUsd != null) {
+    const ceiling = Math.max(h.lastBoughtSingleUsd + 5, Math.round(h.lastBoughtSingleUsd * 1.15));
+    if (priceUsd > ceiling)
+      return `His last single photo sold at $${h.lastBoughtSingleUsd}. Price this one at most $${ceiling}: bigger jumps did not sell. For more money offer a pack instead.`;
+  }
   // Owner, 5 Nov 2026: a hot chat is not left waiting on one locked photo. Up to maxOpenPaid unopened paid messages at once.
   const maxOpen = rules.maxOpenPaid ?? 1;
   if (h.openPaid >= maxOpen)
