@@ -27,8 +27,9 @@ export const freePhotoSince = (newestFirst, fanUuid, at) =>
   newestFirst.some((m) => !isAutomatedOrBroadcast(m) && m.sender.uuid !== fanUuid && m.hasMedia && !m.pricing && Date.parse(m.sentAt) > at);
 
 // A tip shows as [tip] so Claude sees it even when he typed nothing with it.
+// Chat review, 14 Nov 2026: a fan's photo with a caption showed only the caption, so the bot answered his selfie with "i wanna see you".
 const messageText = (m) =>
-  m.type === "TIP" ? (m.text ? `${m.text} [tip]` : "[tip]") : (m.text ?? (m.hasMedia ? "[slika]" : ""));
+  m.type === "TIP" ? (m.text ? `${m.text} [tip]` : "[tip]") : m.hasMedia ? (m.text ? `${m.text} [slika]` : "[slika]") : (m.text ?? "");
 
 /** Her line, with what she attached, so Claude knows a photo or paid photo went out even when it had a caption. */
 function ownLine(m, now) {
