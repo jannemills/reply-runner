@@ -21,4 +21,5 @@ jobs:
           WORKER_URL: ${{ secrets.BIO_WORKER_URL }}
           JOB_SECRET: ${{ secrets.BIO_JOB_SECRET }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          BIO_MODEL: ${{ vars.BIO_MODEL }}
         run: node bio.mjs
