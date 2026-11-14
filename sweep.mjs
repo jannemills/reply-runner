@@ -42,7 +42,13 @@ if (res.status === 404) {
     console.log(`sweep posted: ${posted.status}, research only, ${result.candidates.length} waiting`);
   } else {
   try {
-    const waiting = await api.listUnansweredFans();
+    const waiting = new Set(await api.listUnansweredFans());
+    // Owner, 15 Nov 2026: also every chat with unread messages or the fan's last word, unless he is on "ignore".
+    try {
+      for (const chat of await api.listWaitingChats()) if (!(ctx.ignoreListUuid && chat.lists.includes(ctx.ignoreListUuid))) waiting.add(chat.uuid);
+    } catch {
+      /* the not-answered filter above still covers the usual case */
+    }
     for (const fan of waiting) {
       if (skip.has(fan) || !inScope(fan)) continue;
       const newest = newestPersonal(await api.fetchMessages(fan));

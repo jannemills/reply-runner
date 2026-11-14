@@ -122,6 +122,16 @@ export function createApi(token, base = process.env.FAN_API_URL || "https://api.
     /** Every fan who has spent money, and every subscriber (free trials included). */
     listSpenderFans: () => fansBy("filter=spenders", 10),
     listSubscriberFans: () => fansBy("filter=subscribers", 10),
+    /**
+     * Chats with unread messages or whose newest message is the fan's, with the lists he is on (owner, 15 Nov 2026: every
+     * deploy answers all unread chats unless the fan is on "ignore"). A chat the bot read but did not answer still counts.
+     */
+    async listWaitingChats() {
+      const chats = await pages("/chats?filter=exclude_creators", 20);
+      return chats
+        .filter((chat) => chat.unreadMessagesCount > 0 || chat.lastMessage?.senderRole === "FAN")
+        .map((chat) => ({ uuid: chat.user.uuid, lists: (chat.customLists ?? []).map((l) => l.uuid) }));
+    },
     /** Every non-creator chat with the custom lists the fan is on. */
     async listAllFans() {
       const chats = await pages("/chats?filter=exclude_creators", 20);
