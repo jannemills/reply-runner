@@ -9,6 +9,7 @@ import {
   mergeNotes,
   newFanMessages,
   newestPersonal,
+  repeatedLine,
   splitNotes,
   splitReply,
   stillNewest,
@@ -445,6 +446,19 @@ export class JobTools {
         );
       }
       this.missedPhotoAsk = true;
+    }
+
+    // Never repeat a line she already sent him, however long ago (owner, 14 Nov 2026: the same riddle twice, he noticed).
+    if ((this.repeatRefusals ??= 0) < 3) {
+      const earlier = await this.readChat(SALES_HISTORY_MESSAGES).catch(() => []);
+      const again = repeatedLine(text, earlier.filter((m) => m.sender.uuid !== fanUuid));
+      if (again) {
+        this.repeatRefusals += 1;
+        return refuse(
+          `Not sent: you already said "${again.clause}" to him earlier in this chat (${again.at}). Never repeat a riddle, question, joke or line. ` +
+            "Read older messages with read_chat (count 200) and write something new that answers what he just said.",
+        );
+      }
     }
 
     const [first, ...rest] = splitReply(text);

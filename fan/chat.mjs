@@ -134,6 +134,26 @@ export function finalText(reply) {
   return text;
 }
 
+const plainWords = (text) =>
+  text.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "").replace(/đ/g, "dj").replace(/[^\p{L}\p{N}\s]/gu, " ").split(/\s+/).filter(Boolean);
+
+/**
+ * A line of this reply that she already sent this fan (owner, 14 Nov 2026: the same riddle went out twice, 2 hours apart, and he
+ * said "to si vec pitala"; the 30 messages Claude reads and its notes had both lost the first one). Compared clause by clause,
+ * ignoring case, accents and punctuation, so a new lead-in before an old question still counts. Short clauses are ignored.
+ * Returns the repeated clause with the time she first sent it, or null.
+ */
+export function repeatedLine(reply, herEarlier) {
+  const old = herEarlier.map((m) => ({ words: new Set(plainWords(m.text ?? "")), at: m.sentAt })).filter((m) => m.words.size >= 4);
+  for (const clause of reply.split(/[\n.?!…]+/)) {
+    const words = plainWords(clause);
+    if (words.length < 4) continue;
+    const hit = old.find((m) => words.filter((w) => m.words.has(w)).length / words.length >= 0.85);
+    if (hit) return { clause: clause.trim(), at: hit.at };
+  }
+  return null;
+}
+
 const MAX_REPLY_PARTS = 3;
 
 /** Each line goes out as its own message, like someone texting. Anything past the limit stays on the last one. */
