@@ -19,6 +19,7 @@ import {
   withStopLine,
   withUsedMomentSet,
 } from "./chat.mjs";
+import { withTypo } from "./typo.mjs";
 import { buildPool, poolForFan, isFirstBuyer, MAX_FREE_STREAK, VIP_MAX_FREE_STREAK, notBuyingRefusal, paidCandidates, photoRefusal, pickPack, pickPhoto, profileText, salesHistory } from "./sales.mjs";
 
 const none = { type: "object", properties: {}, additionalProperties: false };
@@ -475,7 +476,7 @@ export class JobTools {
 
   /** Sends one message and marks the job replied. The newest message anchors the follow-up; if this read fails there is simply none. */
   async #sendPart(text) {
-    await this.api.sendText(this.fanUuid, text);
+    await this.api.sendText(this.fanUuid, withTypo(text));
     const newest = (await this.api.fetchMessages(this.fanUuid).catch(() => []))[0];
     this.sentUuid = newest && newest.sender.uuid !== this.fanUuid ? newest.uuid : undefined;
     this.replied = true;
