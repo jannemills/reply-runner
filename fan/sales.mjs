@@ -222,3 +222,17 @@ export function isFirstBuyer(insights, h, vip) {
   if (vip || !insights || h.bought > 0) return false;
   return (insights.spending?.total?.netTotal ?? 0) <= 0;
 }
+
+/**
+ * Owner, 15 Nov 2026 ("he teases us and we don't sell"): a $0 fan sexted for free for 14 hours, about 150 text replies, one free
+ * photo and no purchase. Counts the one-to-one text messages from her side since her newest photo message (newest first in).
+ */
+export function freeTalkRun(messagesNewestFirst, fanUuid) {
+  let n = 0;
+  for (const m of messagesNewestFirst) {
+    if (m.sender.uuid === fanUuid || m.type !== "SINGLE_RECIPIENT") continue;
+    if (m.mediaUuids?.length) break;
+    n++;
+  }
+  return n;
+}

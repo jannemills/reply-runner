@@ -20,7 +20,7 @@ import {
   withUsedMomentSet,
 } from "./chat.mjs";
 import { withTypo } from "./typo.mjs";
-import { buildPool, poolForFan, isFirstBuyer, MAX_FREE_STREAK, VIP_MAX_FREE_STREAK, notBuyingRefusal, paidCandidates, photoRefusal, pickPack, pickPhoto, profileText, salesHistory } from "./sales.mjs";
+import { buildPool, poolForFan, isFirstBuyer, freeTalkRun, MAX_FREE_STREAK, VIP_MAX_FREE_STREAK, notBuyingRefusal, paidCandidates, photoRefusal, pickPack, pickPhoto, profileText, salesHistory } from "./sales.mjs";
 
 const none = { type: "object", properties: {}, additionalProperties: false };
 
@@ -447,6 +447,25 @@ export class JobTools {
         );
       }
       this.missedPhotoAsk = true;
+    }
+
+    // A fan who never paid must not get endless free text (owner, 15 Nov 2026: 14 hours of free sexting, no sale). After many text
+    // replies with no photo, the next step is the small first unlock; one refusal, then the reply may go out so he is never left unanswered.
+    if (!this.photoSent && !this.followUp && !this.thanks && !this.noSale && !this.research && !this.vip && !this.freeTalkNudged) {
+      const limit = this.rules.freeTalkMaxReplies ?? 12;
+      const chat = await this.readChat(SALES_HISTORY_MESSAGES).catch(() => null);
+      if (chat && freeTalkRun(chat, this.fanUuid) >= limit) {
+        const history = await this.#history(chat);
+        if (isFirstBuyer(await api.getFanInsights(fanUuid).catch(() => null), history, this.vip)) {
+          this.freeTalkNudged = true;
+          return refuse(
+            `Not sent: you have written ${limit}+ text replies to him with no photo, and he has never paid. Free talk is what he came for; more of it teaches him not to pay. ` +
+              "Turn his own last words into the caption of ONE small paid single (send_photo kind paid, $3 to $5) and send it with this reply, then keep the line short. " +
+              "If he said his card or payment does not work, give one concrete help (add or change the card in Fanvue settings, try the app) and do not send a new offer; keep the text short and do not continue explicit talk for free. " +
+              "If he has said no to a small unlock, send_reply again with one short plain line.",
+          );
+        }
+      }
     }
 
     // Never repeat a line she already sent him, however long ago (owner, 14 Nov 2026: the same riddle twice, he noticed).
