@@ -46,7 +46,8 @@ export async function runFilter({ model, system, prompt, schema }) {
 export async function runAgent({ model, system, prompt, toolNames, mcpUrl, mcpKey }) {
   const config = join(mkdtempSync(join(tmpdir(), "mcp-")), "mcp.json");
   writeFileSync(config, JSON.stringify({ mcpServers: { chat: { type: "http", url: mcpUrl, headers: { "x-tool-key": mcpKey } } } }), { mode: 0o600 });
-  // The reply agent always runs at high effort (owner, 6 Nov 2026); the filter stays low.
+  // Owner, 15 Nov 2026: Sonnet (fans who spent $0) runs at high effort, Opus and Fable (spenders, VIPs) at medium; the filter stays low.
+  const effort = /sonnet/i.test(model) ? "high" : "medium";
   const result = await runClaude(prompt, [
     "--model", model,
     "--tools", "",
@@ -54,6 +55,6 @@ export async function runAgent({ model, system, prompt, toolNames, mcpUrl, mcpKe
     "--allowedTools", toolNames.map((t) => `mcp__chat__${t}`).join(","),
     "--max-turns", "10",
     "--system-prompt", system,
-  ], "high");
+  ], effort);
   if (result.is_error) throw failure(result);
 }

@@ -77,6 +77,7 @@ if (res.status === 404) {
     if (missing.length) await api.addToList(ctx.testListUuid, missing);
     result.listed = missing.length;
     // Owner, 7 Nov 2026: nobody on the custom list "ignore" is ever answered; the Worker skips them.
+    if (ctx.usaListUuid) result.english = allFans.filter((f) => f.lists.includes(ctx.usaListUuid)).map((f) => f.uuid); // owner, 15 Nov 2026: English speakers have no quiet hours
     if (ctx.ignoreListUuid) result.ignored = allFans.filter((f) => f.lists.includes(ctx.ignoreListUuid)).map((f) => f.uuid);
   } catch (err) {
     result.error ??= `list sync: ${err.status ?? "failed"}`;
