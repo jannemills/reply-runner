@@ -34,4 +34,5 @@ jobs:
           JOB_SECRET: ${{ secrets.BIO_JOB_SECRET }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           BIO_MODEL: ${{ vars.BIO_MODEL }}
+          BIO_EFFORT: ${{ vars.BIO_EFFORT }}
         run: node bio.mjs
