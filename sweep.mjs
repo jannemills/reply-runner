@@ -73,12 +73,21 @@ if (res.status === 404) {
   let allFans = null;
   try {
     allFans = await api.listAllFans();
-    const missing = allFans.filter((f) => !f.lists.includes(ctx.testListUuid) && !excluded.has(f.uuid) && inScope(f.uuid)).map((f) => f.uuid);
-    if (missing.length) await api.addToList(ctx.testListUuid, missing);
-    result.listed = missing.length;
     // Owner, 7 Nov 2026: nobody on the custom list "ignore" is ever answered; the Worker skips them.
     if (ctx.usaListUuid) result.english = allFans.filter((f) => f.lists.includes(ctx.usaListUuid)).map((f) => f.uuid); // owner, 15 Nov 2026: English speakers have no quiet hours
     if (ctx.ignoreListUuid) result.ignored = allFans.filter((f) => f.lists.includes(ctx.ignoreListUuid)).map((f) => f.uuid);
+    // 16 Nov 2026: these two used to come after the test-list add below; the test list was gone (404 on every sweep), so the
+    // add threw first and the ignore and English lists were never refreshed. Report them first, and treat a missing test list as non-fatal.
+    const missing = allFans.filter((f) => !f.lists.includes(ctx.testListUuid) && !excluded.has(f.uuid) && inScope(f.uuid)).map((f) => f.uuid);
+    result.listed = 0;
+    if (missing.length) {
+      try {
+        await api.addToList(ctx.testListUuid, missing);
+        result.listed = missing.length;
+      } catch (err) {
+        if (err.status !== 404) throw err; // list deleted: nothing to keep in sync
+      }
+    }
   } catch (err) {
     result.error ??= `list sync: ${err.status ?? "failed"}`;
   }
