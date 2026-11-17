@@ -3,7 +3,7 @@
 // Never print the job, the chat or Claude's output: this log is public.
 import { createApi } from "./fan/api.mjs";
 import { runAgent, runFilter } from "./fan/claude.mjs";
-import { answeredSince, freePhotoSince, herLastTypedAt, isHandedOver, needsReply, newCreatorMessages, newFanMessages, newestPersonal, reactedTo, researchNeedsReply, stillNewest, unansweredRuns } from "./fan/chat.mjs";
+import { answeredSince, freePhotoSince, herLastTypedAt, isHandedOver, lowSignalKind, needsReply, newCreatorMessages, newFanMessages, newestPersonal, reactedTo, researchNeedsReply, stillNewest, unansweredRuns } from "./fan/chat.mjs";
 import { startToolServer } from "./fan/mcp.mjs";
 import { JobTools, RESEARCH_TOOLS, TOOLS } from "./fan/tools.mjs";
 
@@ -68,6 +68,8 @@ if (jobRes.status === 404) {
     const promptRes = await post("/prompt", {});
     if (!promptRes.ok) throw new Error(`fetching the prompt failed: ${promptRes.status}`);
     const agent = await promptRes.json();
+    // Owner, 17 Nov 2026: an emoji-only message from a fan who has spent nothing gets no model run and no reply.
+    if (agent.skip) return void (await post("", { done: true, skipped: "answered" }));
     const tools = new JobTools({
       api, fanUuid, newestUuid: newestPersonal(messages)?.uuid, followUp: true, research: true,
       sendAt: job.sendAt, rules: job.rules, usaListUuid: job.usaListUuid, gate,
@@ -137,8 +139,11 @@ if (jobRes.status === 404) {
     }
     console.log("filter: safe");
 
+    const plain = wrote && !followUp && !thanks && !reaction && !engaged && !reengage && !comment;
+    const lowSignal = plain ? lowSignalKind(newFanMessages(messages, fanUuid)) : null;
     const promptRes = await post("/prompt", {
       followUp,
+      ...(lowSignal ? { lowSignal } : {}),
       ...(thanks ? { thanks } : {}),
       ...(reaction ? { reaction } : {}),
       ...(engaged ? { engaged } : {}),

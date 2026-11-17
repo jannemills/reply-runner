@@ -47,13 +47,13 @@ export async function runAgent({ model, system, prompt, toolNames, mcpUrl, mcpKe
   const config = join(mkdtempSync(join(tmpdir(), "mcp-")), "mcp.json");
   writeFileSync(config, JSON.stringify({ mcpServers: { chat: { type: "http", url: mcpUrl, headers: { "x-tool-key": mcpKey } } } }), { mode: 0o600 });
   // Owner, 15 Nov 2026: Sonnet (fans who spent $0) runs at high effort, Opus and Fable (spenders, VIPs) at medium; the filter stays low.
-  const effort = /sonnet/i.test(model) ? "high" : "medium";
+  const effort = /haiku/i.test(model) ? "low" : /sonnet/i.test(model) ? "high" : "medium"; // 17 Nov 2026: greetings from $0 fans run on Haiku
   const result = await runClaude(prompt, [
     "--model", model,
     "--tools", "",
     "--mcp-config", config,
     "--allowedTools", toolNames.map((t) => `mcp__chat__${t}`).join(","),
-    "--max-turns", "10",
+    "--max-turns", /haiku/i.test(model) ? "4" : "10",
     "--system-prompt", system,
   ], effort);
   if (result.is_error) throw failure(result);

@@ -118,6 +118,18 @@ export function newFanMessages(newestFirst, fanUuid) {
   return lines.join("\n");
 }
 
+/**
+ * Owner, 17 Nov 2026 (token budget): what a plain message is worth. "emoji" = nothing but emoji and punctuation, "greeting" = a short
+ * hello or "how are you", anything else is null (a real message). The Worker decides what that means for a fan who has spent $0.
+ */
+const GREETING = /^(cao|ćao|čao|ej+|h+e+[jy]+|hi+|hello|zdravo|alo|hola|ciao|dobro (jutro|vece|veče|dan)|dobar (dan|veče|vece)|jutro|laku noc|laku noć|sta ima|šta ima|sta radis|šta radiš|kako si|kako ste|kako (ide|je)|jesi tu|tu si|good (morning|evening|night)|how are you|what'?s up|sup)( [\p{L}]+)?[\s!?.,😊😘😉🥰❤️💋😍🙂]*$/iu;
+export function lowSignalKind(text) {
+  const t = (text ?? "").trim();
+  if (!t || t.length > 40 || t.split("\n").length > 4) return null;
+  if (!/[\p{L}\p{N}]/u.test(t)) return "emoji";
+  return GREETING.test(t) ? "greeting" : null;
+}
+
 export const mentionsAi = (text) => /(^|[^\p{L}])(ai|a\.i\.|ej ?aj|vestack|veštačk)/iu.test(text);
 
 /** The reply must never speak of a team, manager or assistant (same check as the Telegram auto-reply). */
