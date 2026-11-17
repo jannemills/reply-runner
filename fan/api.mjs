@@ -88,6 +88,12 @@ export function createApi(token, base = process.env.FAN_API_URL || "https://api.
     async markChatUnread(fanUuid) {
       await call(`/chats/${fanUuid}`, { method: "PATCH", body: JSON.stringify({ isRead: false }) });
     },
+    /** Shows "typing..." to the fan; best-effort, never throws. */
+    async setTyping(fanUuid, isTyping = true) {
+      try {
+        await call(`/chats/${fanUuid}/typing`, { method: "POST", body: JSON.stringify({ isTyping }) });
+      } catch {}
+    },
     async sendText(fanUuid, text) {
       await call(`/chats/${fanUuid}/message`, { method: "POST", body: JSON.stringify({ text }) });
     },

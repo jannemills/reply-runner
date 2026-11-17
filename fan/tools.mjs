@@ -417,6 +417,16 @@ export class JobTools {
     return true;
   }
 
+  /** Waits; for a VIP the fan sees "typing..." meanwhile (owner, 17 Nov 2026). */
+  async #wait(ms) {
+    if (!this.vip || !this.api.setTyping) return this.sleep(ms);
+    for (let left = ms; left > 0; left -= 4000) {
+      await this.api.setTyping(this.fanUuid, true);
+      await this.sleep(Math.min(left, 4000));
+    }
+    await this.api.setTyping(this.fanUuid, false);
+  }
+
   async #sendReply(reply) {
     const { api, fanUuid } = this;
     if (isHandedOver(await api.getNotes(fanUuid), this.now())) return refuse("This chat is with a person. Stop here.");
@@ -425,7 +435,7 @@ export class JobTools {
 
     // The reply is ready early: hold the first message until its random send time.
     const hold = this.sendAt ? Math.min(this.sendAt - this.now(), MAX_HOLD_MS) : 0;
-    if (hold > 0) await this.sleep(hold);
+    if (hold > 0) await this.#wait(hold);
 
     // He wrote again or someone answered by hand while Claude was writing: this reply is out of date.
     if (newestPersonal(await api.fetchMessages(fanUuid))?.uuid !== this.newestUuid) {
@@ -484,7 +494,7 @@ export class JobTools {
     const [first, ...rest] = splitReply(text);
     await this.#sendPart(first);
     for (const part of rest) {
-      await this.sleep(typingDelayMs(part));
+      await this.#wait(typingDelayMs(part));
       // He wrote or someone answered during the pause: the rest is out of date.
       if (!this.sentUuid || !stillNewest(await api.fetchMessages(fanUuid), this.sentUuid)) break;
       await this.#sendPart(part);
@@ -597,7 +607,7 @@ export class JobTools {
     const count = args.count === undefined ? photos.length : Math.min(Math.max(Math.trunc(Number(args.count)) || 1, 1), photos.length);
     const uuids = photos.slice(0, count);
     if (!uuids.length) return refuse("That set has no photo left for him. Answer in words.");
-    if (this.replied) await this.sleep(typingDelayMs(text));
+    if (this.replied) await this.#wait(typingDelayMs(text));
     await api.sendPhotos(fanUuid, text, uuids);
     // The set is used for him now, also the photos he did not get. The note keeps it beyond any chat window.
     await api.putNotes(fanUuid, withUsedMomentSet(await api.getNotes(fanUuid), set.name)).catch(() => {});
@@ -642,7 +652,7 @@ export class JobTools {
     const pack = pool && pickPack(pool, history, count, args.nude === true, this.random, this.vip);
     if (!pack) return refuse("Not enough unseen paid photos or previews for him. Send no pack: try send_photo kind paid, and if that is refused too, follow \"Out of paid photos\" (free photo if he wants photos, ready_for_offer).");
 
-    if (this.replied) await this.sleep(typingDelayMs(text));
+    if (this.replied) await this.#wait(typingDelayMs(text));
     await api.sendPpvPack(fanUuid, text, [pack.preview, ...pack.photos], pack.preview, priceUsd * 100);
     await this.#noteSent([pack.preview, ...pack.photos]);
     const newest = (await api.fetchMessages(fanUuid).catch(() => []))[0];
@@ -687,7 +697,7 @@ export class JobTools {
           : "No unseen free photo is left for him either. Send no photo; call ready_for_offer and answer him in words.",
       );
 
-    if (this.replied) await this.sleep(typingDelayMs(text));
+    if (this.replied) await this.#wait(typingDelayMs(text));
     await api.sendPhoto(fanUuid, text, photo, kind === "paid" ? priceUsd * 100 : undefined);
     await this.#noteSent([photo]);
     const newest = (await api.fetchMessages(fanUuid).catch(() => []))[0];
