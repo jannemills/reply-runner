@@ -72,7 +72,7 @@ export const TOOLS = [
       properties: {
         kind: { type: "string", enum: ["free", "paid"] },
         text: { type: "string", description: "One short line that says nothing about what is in the photo." },
-        price_usd: { type: "integer", minimum: 3, maximum: 20, description: "Only for kind paid." },
+        price_usd: { type: "integer", minimum: 3, maximum: 100, description: "Only for kind paid." },
         nude: { type: "boolean", description: "True only if the chat already promised him a nude." },
       },
       required: ["kind", "text"],
@@ -88,7 +88,7 @@ export const TOOLS = [
       properties: {
         count: { type: "integer", minimum: 2, maximum: 6, description: "Paid photos in the pack, not counting the free preview." },
         text: { type: "string", description: "One short line that says nothing about what is in the photos." },
-        price_usd: { type: "integer", minimum: 5, maximum: 40, description: "Price of the whole pack." },
+        price_usd: { type: "integer", minimum: 5, maximum: 200, description: "Price of the whole pack." },
         nude: { type: "boolean", description: "True only if the chat already promised him a nude." },
       },
       required: ["count", "text", "price_usd"],
@@ -478,7 +478,7 @@ export class JobTools {
           this.freeTalkNudged = true;
           return refuse(
             `Not sent: you have written ${limit}+ text replies to him with no photo, and he has never paid. Free talk is what he came for; more of it teaches him not to pay. ` +
-              "Turn his own last words into the caption of ONE small paid single (send_photo kind paid, $3 to $5) and send it with this reply, then keep the line short. " +
+              "Turn his own last words into the caption of ONE small paid single (send_photo kind paid, small and easy, priced for him) and send it with this reply, then keep the line short. " +
               "If he said his card or payment does not work, give one concrete help (add or change the card in Fanvue settings, try the app) and do not send a new offer; keep the text short and do not continue explicit talk for free. " +
               "If he has said no to a small unlock, send_reply again with one short plain line.",
           );

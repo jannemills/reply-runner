@@ -130,15 +130,9 @@ export function salesHistory(messages, fanUuid, now, rules) {
 /** Why this photo may not go out now, or null when it may. */
 export function photoRefusal(kind, h, now, priceUsd, rules, firstBuyer = false) {
   // Owner, 10 Nov 2026: a fan who never paid gets a few free photos, then a small first unlock instead of more free ones.
-  if (firstBuyer && rules.firstBuyMaxUsd != null) {
-    const range = `$${rules.minPriceUsd} to $${rules.firstBuyMaxUsd}`;
-    if (kind === "free" && rules.freeBeforeFirstBuy != null && h.freePhotos >= rules.freeBeforeFirstBuy)
-      return `He has had ${h.freePhotos} free photos and never paid. No more free ones: his next photo is one small paid photo (${range}), his first unlock.`;
-    if (kind === "paid" && Number(priceUsd) > rules.firstBuyMaxUsd)
-      return `He has never paid anything: his first unlock costs ${range}. Choose a price in that range.`;
-    if (kind === "pack")
-      return `He has never paid anything: his first offer is one single paid photo with send_photo at ${range}, not a pack.`;
-  }
+  // Owner, 17 Nov 2026: no fixed price or format for the first unlock any more; the model decides it per fan (small and easy).
+  if (firstBuyer && kind === "free" && rules.freeBeforeFirstBuy != null && h.freePhotos >= rules.freeBeforeFirstBuy)
+    return `He has had ${h.freePhotos} free photos and never paid. No more free ones: his next photo is his small, easy paid first unlock (a single or a small pack, priced for him).`;
   const isPack = kind === "pack";
   if (kind === "pack") kind = "paid";
   if (kind === "free" && h.freeStreak >= (h.freeStreakLimit ?? MAX_FREE_STREAK))
