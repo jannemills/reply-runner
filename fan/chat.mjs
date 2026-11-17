@@ -68,12 +68,15 @@ export function unansweredRuns(newestFirst, fanUuid) {
   return runs;
 }
 
+/** A photo he sent, with what it really is when we looked at it: "[slika: face_selfie - man smiling in a car]". */
+const tagPhoto = (text, seen) => (seen ? text.replace(/\[slika\]$/, `[slika: ${seen.kind} - ${seen.note}]`) : text);
+
 /** Readable chat for Claude, oldest first. */
-export function formatChat(newestFirst, fanUuid, now) {
+export function formatChat(newestFirst, fanUuid, now, photoKinds = {}) {
   return [...newestFirst]
     .reverse()
     .filter(messageText)
-    .map((m) => (m.sender.uuid === fanUuid ? `Fan: ${messageText(m)}` : `${typedByHer(m) ? "Andrea (her own typing)" : "Andrea"}: ${ownLine(m, now)}`))
+    .map((m) => (m.sender.uuid === fanUuid ? `Fan: ${tagPhoto(messageText(m), photoKinds[m.uuid])}` : `${typedByHer(m) ? "Andrea (her own typing)" : "Andrea"}: ${ownLine(m, now)}`))
     .join("\n");
 }
 

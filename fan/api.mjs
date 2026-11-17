@@ -44,6 +44,11 @@ export function createApi(token, base = process.env.FAN_API_URL || "https://api.
   const fansBy = async (query, maxPages) => new Set((await pages(`/chats?${query}`, maxPages)).map((chat) => chat.user.uuid));
 
   return {
+    /** One media item of a message, with signed URLs (used to look at a fan's photo). */
+    async messageMedia(userUuid, messageUuid, mediaUuid) {
+      const body = await (await call(`/chats/${userUuid}/messages/${messageUuid}/media?mediaUuids=${mediaUuid}`)).json();
+      return body.results?.[mediaUuid] ?? {};
+    },
     /** Owner, 4 Nov 2026: every creator account in the chats is a research chat. Uuids only. */
     // The "creators" smart list is not a reliable filter (it returned fans too), so each chat's own isCreator decides.
     // Archived chats are not in the normal list, and many creators sit there (owner, 4 Nov 2026), so both are read.

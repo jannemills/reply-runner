@@ -5,11 +5,11 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-export function runClaude(prompt, args, effort = "low") {
+export function runClaude(prompt, args, effort = "low", workDir) {
   const { PATH, HOME, CLAUDE_CODE_OAUTH_TOKEN } = process.env;
   return new Promise((resolve, reject) => {
     // An empty folder and a minimal environment, so nothing else can reach the conversation.
-    const cwd = mkdtempSync(join(tmpdir(), "reply-"));
+    const cwd = workDir ?? mkdtempSync(join(tmpdir(), "reply-"));
     const child = spawn(
       "claude",
       ["-p", "--output-format", "json", "--effort", effort, "--strict-mcp-config", "--setting-sources", "", "--no-session-persistence", ...args],
