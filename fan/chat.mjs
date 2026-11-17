@@ -127,6 +127,9 @@ export function lowSignalKind(text) {
   const t = (text ?? "").trim();
   if (!t || t.length > 40 || t.split("\n").length > 4) return null;
   if (!/[\p{L}\p{N}]/u.test(t)) return "emoji";
+  // One or two words ("Sta ima", "ok", "slika?", "jesi tu") is a simple question or remark: Haiku is enough (owner, 17 Nov 2026).
+  const words = t.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w));
+  if (words.length <= 2 && t.length <= 30 && !/https?:|www\./i.test(t)) return "greeting";
   return GREETING.test(t) ? "greeting" : null;
 }
 
