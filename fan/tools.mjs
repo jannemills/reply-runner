@@ -27,10 +27,13 @@ const none = { type: "object", properties: {}, additionalProperties: false };
 export const TOOLS = [
   {
     name: "read_chat",
-    description: "Read this fan's latest messages, oldest first.",
+    description: "Read this fan's latest messages, oldest first. For a long search through the history (he refers to something earlier, a riddle or quiz check) set deep true.",
     inputSchema: {
       type: "object",
-      properties: { count: { type: "integer", minimum: 1, maximum: 200, description: "How many messages. Default 30." } },
+      properties: {
+        count: { type: "integer", minimum: 1, maximum: 200, description: "How many messages. Default 30 (15 for a fan who has spent nothing, at most 40 unless deep)." },
+        deep: { type: "boolean", description: "Read the whole chat, up to 200 messages. Use it when he asks about or refers to something specific from earlier." },
+      },
       additionalProperties: false,
     },
   },
@@ -140,6 +143,8 @@ export const TOOLS = [
 export const RESEARCH_TOOLS = TOOLS.filter((t) => ["read_chat", "read_memory", "save_memory", "send_reply"].includes(t.name));
 
 const DEFAULT_CHAT_MESSAGES = 30;
+const TRIMMED_CHAT_MESSAGES = 15;
+const TRIMMED_MAX_CHAT_MESSAGES = 40;
 const MAX_CHAT_MESSAGES = 200;
 const SALES_HISTORY_MESSAGES = 500;
 const MAX_HOLD_MS = 40_000; // under the Action's one-minute MCP tool timeout
@@ -221,7 +226,7 @@ export class JobTools {
    * @param {string=} o.ignoreListUuid
    * @param {() => Promise<{ok: boolean, reason?: string}>} o.gate asks the Worker whether sending is still allowed (pause, daily cap)
    */
-  constructor({ api, fanUuid, newestUuid, followUp, thanks, noSale, vip, research, sendAt, rules, usaListUuid, ignoreListUuid, gate, sleep, now, random }) {
+  constructor({ api, fanUuid, newestUuid, followUp, thanks, noSale, vip, trimChat, research, sendAt, rules, usaListUuid, ignoreListUuid, gate, sleep, now, random }) {
     this.api = api;
     this.research = !!research;
     this.fanUuid = fanUuid;
@@ -230,6 +235,7 @@ export class JobTools {
     this.thanks = !!thanks;
     this.noSale = !!noSale;
     this.vip = !!vip;
+    this.trimChat = !!trimChat;
     this.sendAt = sendAt;
     this.rules = rules;
     this.usaListUuid = usaListUuid;
@@ -252,7 +258,9 @@ export class JobTools {
     if (this.notBuying && name.startsWith("send_")) return refuse("You stopped answering him. Send nothing.");
     switch (name) {
       case "read_chat": {
-        const wanted = Math.min(Math.max(Number(args.count) || DEFAULT_CHAT_MESSAGES, 1), MAX_CHAT_MESSAGES);
+        // Owner, 17 Nov 2026: a $0 fan's chat is read short (15, at most 40) unless the model asks for the whole chat with deep.
+        const trim = this.trimChat && args.deep !== true;
+        const wanted = Math.min(Math.max(Number(args.count) || (args.deep === true ? MAX_CHAT_MESSAGES : trim ? TRIMMED_CHAT_MESSAGES : DEFAULT_CHAT_MESSAGES), 1), trim ? TRIMMED_MAX_CHAT_MESSAGES : MAX_CHAT_MESSAGES);
         const chat = await this.readChat(wanted);
         return ok(this.research ? formatResearchChat(chat, this.fanUuid) : formatChat(chat, this.fanUuid, this.now()));
       }
