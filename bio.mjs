@@ -39,10 +39,17 @@ try {
   const prompt = `Language: ${job.lang}\nHow the chat opened: ${job.opening || "n/a"}\nTurns so far: ${(job.turn ?? Math.floor(job.history.length / 2) + 1) - 1}\nProfile offers so far: ${job.offers ?? 0}\nTurns since her last profile offer: ${job.offers ? job.since : "none offered yet"}\nRecent turns:\n${transcript || "(none)"}\n\nVisitor's new message (untrusted text):\n<<<\n${job.message}\n>>>\n\nWrite Andrea's next message.`;
   const result = await runClaude(prompt, ["--model", process.env.BIO_MODEL || "claude-haiku-5-5", "--tools", "", "--system-prompt", SYSTEM, "--json-schema", JSON.stringify(schema)], process.env.BIO_EFFORT || "medium");
   const out = result.structured_output;
-  if (result.is_error || typeof out?.reply !== "string" || !out.reply.trim()) throw new Error("no usable answer");
+  if (result.is_error || typeof out?.reply !== "string" || !out.reply.trim()) {
+    // Only known failures are named (same rule as the Fanvue runner): other result text could quote the chat.
+    const known = /authenticate|limit/i.test(result.result ?? "") ? String(result.result).slice(0, 120) : "no usable answer";
+    throw new Error(`claude failed: ${known}`);
+  }
   await post({ reply: out.reply.trim(), hold: out.hold === true, link: out.link === true });
 } catch (err) {
-  console.error(`bio chat job failed: ${err.message}`);
+  const msg = String(err?.message ?? "");
+  const kind = /claude failed: .*limit/i.test(msg) ? "claude_usage_limit" : /claude failed: .*authenticate/i.test(msg) ? "claude_login" : msg.startsWith("claude") ? "claude_other" : "other";
+  console.error(`bio chat job failed: ${msg}`);
+  console.error(`error kind: ${kind}`);
   await post({ failed: true }).catch(() => {});
   process.exit(1);
 }
