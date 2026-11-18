@@ -157,7 +157,7 @@ export function photoRefusal(kind, h, now, priceUsd, rules, firstBuyer = false) 
   // Owner, 5 Nov 2026: a hot chat is not left waiting on one locked photo. Up to maxOpenPaid unopened paid messages at once.
   const maxOpen = rules.maxOpenPaid ?? 1;
   if (h.openPaid >= maxOpen)
-    return `He already has ${h.openPaid} paid ${h.openPaid === 1 ? "message" : "messages"} from the last ${rules.openPpvDays} days that he has not opened. No new one: tease about those instead.`;
+    return `He already has ${h.openPaid} paid ${h.openPaid === 1 ? "message" : "messages"} from the last ${rules.openPpvDays} days that he has not opened. No new paid message now. Do not fill the gap with free explicit talk or another free photo: keep this reply to one short line, then make a fresh offer of a different kind (another format, a lower price than the locked ones) at his next heat line.`;
   if (h.lastPaidAt && now - h.lastPaidAt < rules.paidPhotoHours * 3600_000) return `He got a paid photo in the last ${rules.paidPhotoHours} hours. No new one yet.`;
   return null;
 }
