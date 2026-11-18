@@ -653,7 +653,7 @@ export class JobTools {
     }
     const history = await this.#history(messages);
     const firstBuyer = isFirstBuyer(await api.getFanInsights(fanUuid).catch(() => null), history, this.vip);
-    // Same open-photo limit (maxOpenPaid) and waiting time as a single paid photo; never a pack as his first offer.
+    // Same waiting time as a single paid photo (no open-offer limit since 19 Nov 2026); never a pack as his first offer.
     const refusal = photoRefusal("pack", history, this.now(), rules.minPriceUsd, rules, firstBuyer);
     if (refusal) return refuse(refusal);
     const pool = await this.#getPool();

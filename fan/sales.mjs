@@ -154,10 +154,7 @@ export function photoRefusal(kind, h, now, priceUsd, rules, firstBuyer = false) 
     if (priceUsd > ceiling)
       return `His last single photo sold at $${h.lastBoughtSingleUsd}. Price this one at most $${ceiling}: bigger jumps did not sell. For more money offer a pack instead.`;
   }
-  // Owner, 5 Nov 2026: a hot chat is not left waiting on one locked photo. Up to maxOpenPaid unopened paid messages at once.
-  const maxOpen = rules.maxOpenPaid ?? 1;
-  if (h.openPaid >= maxOpen)
-    return `He already has ${h.openPaid} paid ${h.openPaid === 1 ? "message" : "messages"} from the last ${rules.openPpvDays} days that he has not opened. No new paid message now. Do not fill the gap with free explicit talk or another free photo: keep this reply to one short line, then make a fresh offer of a different kind (another format, a lower price than the locked ones) at his next heat line.`;
+  // Owner, 19 Nov 2026: "we shouldn't have any open-offer limit ... if he doesn't open the previous we send new ones". No limit on unopened paid messages.
   if (h.lastPaidAt && now - h.lastPaidAt < rules.paidPhotoHours * 3600_000) return `He got a paid photo in the last ${rules.paidPhotoHours} hours. No new one yet.`;
   return null;
 }
@@ -210,7 +207,7 @@ export function profileText(raw, h, rules) {
     `Status: ${i.status ?? "unknown"}${sub ? `, subscribed since ${day(Date.parse(sub.createdAt ?? ""))}, ${sub.autoRenewalEnabled ? "auto-renew on" : "auto-renew off"}, renews or ends ${day(Date.parse(sub.renewsAt ?? ""))}` : ""}`,
     `Spent in total: ${usd(total)} over ${count} payments${count ? `, average ${usd(total / count)}` : ""}, largest ${usd(s.maxSinglePayment?.total ?? 0)}, last purchase ${day(Date.parse(s.lastPurchaseAt ?? ""))}`,
     `By source: ${sources.map(([k, v]) => `${k} ${usd(v.netTotal ?? 0)} (${v.netCount})`).join(", ") || "none"}`,
-    `Photos in this chat: ${h.freePhotos} free (last ${day(h.lastFreeAt)}), ${h.paidPhotos} paid (last ${day(h.lastPaidAt)}), ${h.bought} bought, ${h.openPaid ? `${h.openPaid} paid ${h.openPaid === 1 ? "message" : "messages"} from the last ${rules.openPpvDays} days still unopened (at most ${rules.maxOpenPaid ?? 1} open at once)` : `no unopened paid photo from the last ${rules.openPpvDays} days`}`,
+    `Photos in this chat: ${h.freePhotos} free (last ${day(h.lastFreeAt)}), ${h.paidPhotos} paid (last ${day(h.lastPaidAt)}), ${h.bought} bought, ${h.openPaid ? `${h.openPaid} paid ${h.openPaid === 1 ? "message" : "messages"} from the last ${rules.openPpvDays} days still unopened` : `no unopened paid photo from the last ${rules.openPpvDays} days`}`,
     rules.priceGuide,
   ].join("\n");
 }
