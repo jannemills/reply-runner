@@ -129,7 +129,7 @@ export const TOOLS = [
   {
     name: "stop_non_buyer",
     description:
-      "Stop answering him because you have tried everything and judge he will never buy. Sends nothing; the owner is told. He is answered again as soon as he pays anything. Refused unless he has spent nothing and has had enough paid offers over enough days; the result says why.",
+      "Stop answering him because you have tried everything and judge he will never buy. Sends nothing; the owner is told. He is answered again as soon as he pays anything. Refused if he ever bought content or tipped (a subscription alone does not count) and until he has had enough paid offers over enough days; the result says why. He then goes on the ignore list.",
     inputSchema: {
       type: "object",
       properties: { reason: { type: "string", description: "A few words on why, no chat text." } },

@@ -167,8 +167,11 @@ export function notBuyingRefusal(insights, h, now, rules, { vip, noSale }) {
   if (vip) return "He is a VIP: never stop answering him.";
   if (noSale) return "He may not be sold to right now, so you cannot judge whether he would buy. Keep answering.";
   if (!insights) return "Could not read what he has spent. Keep answering.";
-  const spent = insights.spending?.total?.netTotal ?? 0;
-  if (spent > 0 || h.bought > 0) return "He has paid before: never stop answering a fan who has spent money.";
+  // Owner, 19 Nov 2026: "if the client refuses and we decide it's not a spender, we move him to ignore". A subscription (or its renewal) is not
+  // buying content: only a fan who bought something else (a paid message, a tip) is protected from being stopped.
+  const sources = Object.entries(insights.spending?.sources ?? {});
+  const spent = sources.filter(([k]) => k !== "subscription" && k !== "renewal").reduce((n, [, v]) => n + (v.netTotal ?? 0), 0);
+  if (spent > 0 || h.bought > 0) return "He has bought content or tipped before: never stop answering a fan who has spent money on you.";
   const minOffers = rules.giveUpMinOffers ?? 3;
   if (h.paidPhotos < minOffers)
     return `He has had only ${h.paidPhotos} paid ${h.paidPhotos === 1 ? "offer" : "offers"} in this chat; at least ${minOffers} first. Keep going.`;
