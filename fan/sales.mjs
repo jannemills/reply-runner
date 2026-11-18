@@ -23,7 +23,11 @@ export function poolFrom(media, skip) {
  * Owner, 11 Nov 2026: vivid-prawn-53 (the top spender) only gets photos added to the vault from 10 Nov 2026 on; nothing older,
  * free or paid. Photos with no readable date are left out for him too.
  */
-export const PHOTO_FROM_BY_FAN = { "94ca4ee5-48c5-47ef-94a3-28b2ee170af6": Date.parse("2026-11-10T00:00:00Z") };
+export const PHOTO_FROM_BY_FAN = {
+  "94ca4ee5-48c5-47ef-94a3-28b2ee170af6": Date.parse("2026-11-10T00:00:00Z"),
+  // Martin28 (owner, 18 Nov 2026): same cut-off as vivid-prawn-53.
+  "d3fb9c02-f878-4d89-b9df-5031c1d4c989": Date.parse("2026-11-10T00:00:00Z"),
+};
 
 /** The pool for one fan: his photo cut-off date applied to every list, if he has one. */
 export function poolForFan(pool, fanUuid) {
