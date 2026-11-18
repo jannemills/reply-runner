@@ -20,7 +20,7 @@ import {
   withUsedMomentSet,
 } from "./chat.mjs";
 import { withTypo } from "./typo.mjs";
-import { buildPool, poolForFan, isFirstBuyer, freeTalkRun, MAX_FREE_STREAK, VIP_MAX_FREE_STREAK, notBuyingRefusal, paidCandidates, photoRefusal, pickPack, pickPhoto, profileText, salesHistory } from "./sales.mjs";
+import { buildPool, poolForFan, isFirstBuyer, freeTalkRun, MAX_FREE_STREAK, VIP_MAX_FREE_STREAK, notBuyingRefusal, paidCandidates, photoRefusal, priceAnchorUsd, pickPack, pickPhoto, profileText, salesHistory } from "./sales.mjs";
 
 const none = { type: "object", properties: {}, additionalProperties: false };
 
@@ -612,7 +612,9 @@ export class JobTools {
       set = (last && unused.find((s) => s.scene === last.scene)) ?? unused[0];
     }
     const photos = set.uuids.filter((u) => !ever.has(u));
-    const count = args.count === undefined ? photos.length : Math.min(Math.max(Math.trunc(Number(args.count)) || 1, 1), photos.length);
+    let count = args.count === undefined ? photos.length : Math.min(Math.max(Math.trunc(Number(args.count)) || 1, 1), photos.length);
+    // Owner, 19 Nov 2026: the free gift after a purchase or a tip is one photo, never a whole set (a $4 unlock got 5 free photos, a tip got 4).
+    if (this.thanks) count = 1;
     const uuids = photos.slice(0, count);
     if (!uuids.length) return refuse("That set has no photo left for him. Answer in words.");
     if (this.replied) await this.#wait(typingDelayMs(text));
@@ -693,7 +695,9 @@ export class JobTools {
     const history = await this.#history(messages);
     if (this.thanks) history.freeStreak = 0; // the thank-you photo for a tip or purchase always goes
     history.freeStreakLimit = this.vip ? VIP_MAX_FREE_STREAK : MAX_FREE_STREAK;
-    const firstBuyer = isFirstBuyer(await api.getFanInsights(fanUuid).catch(() => null), history, this.vip);
+    const insights = await api.getFanInsights(fanUuid).catch(() => null);
+    history.priceAnchorUsd = priceAnchorUsd(insights);
+    const firstBuyer = isFirstBuyer(insights, history, this.vip);
     const refusal = photoRefusal(kind, history, this.now(), priceUsd, rules, firstBuyer);
     if (refusal) return refuse(refusal);
     const pool = await this.#getPool();

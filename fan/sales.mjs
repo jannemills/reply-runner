@@ -131,6 +131,16 @@ export function salesHistory(messages, fanUuid, now, rules) {
   return h;
 }
 
+/**
+ * His own price level in whole dollars: the higher of his average tip and his average paid message (subscriptions do not count).
+ * 19 Nov 2026 review: a fan with $90 spent, mostly tips of about $7, was offered $3-6 singles because only his last bought single counted.
+ */
+export function priceAnchorUsd(insights) {
+  const src = insights?.spending?.sources ?? {};
+  const avg = (k) => ((src[k]?.netCount ?? 0) > 0 ? (src[k].netAverage ?? 0) / 100 : 0);
+  return Math.round(Math.max(avg("tip"), avg("message")));
+}
+
 /** Why this photo may not go out now, or null when it may. */
 export function photoRefusal(kind, h, now, priceUsd, rules, firstBuyer = false) {
   // Owner, 10 Nov 2026: a fan who never paid gets a few free photos, then a small first unlock instead of more free ones.
@@ -150,7 +160,8 @@ export function photoRefusal(kind, h, now, priceUsd, rules, firstBuyer = false) 
     return `Choose a whole-dollar price from ${rules.minPriceUsd} to ${rules.maxPriceUsd}.`;
   // Chat review, 14 Nov 2026: jumps of 20-50% right after a purchase sold 0 of 4. A single goes at most $5 (or 15%) above his last bought single.
   if (!isPack && h.lastBoughtSingleUsd != null) {
-    const ceiling = Math.max(h.lastBoughtSingleUsd + 5, Math.round(h.lastBoughtSingleUsd * 1.15));
+    const anchor = h.priceAnchorUsd ?? 0;
+    const ceiling = Math.max(h.lastBoughtSingleUsd + 5, Math.round(h.lastBoughtSingleUsd * 1.15), anchor + 5, Math.round(anchor * 1.15));
     if (priceUsd > ceiling)
       return `His last single photo sold at $${h.lastBoughtSingleUsd}. Price this one at most $${ceiling}: bigger jumps did not sell. For more money offer a pack instead.`;
   }
@@ -211,8 +222,9 @@ export function profileText(raw, h, rules) {
     `Spent in total: ${usd(total)} over ${count} payments${count ? `, average ${usd(total / count)}` : ""}, largest ${usd(s.maxSinglePayment?.total ?? 0)}, last purchase ${day(Date.parse(s.lastPurchaseAt ?? ""))}`,
     `By source: ${sources.map(([k, v]) => `${k} ${usd(v.netTotal ?? 0)} (${v.netCount})`).join(", ") || "none"}`,
     `Photos in this chat: ${h.freePhotos} free (last ${day(h.lastFreeAt)}), ${h.paidPhotos} paid (last ${day(h.lastPaidAt)}), ${h.bought} bought, ${h.openPaid ? `${h.openPaid} paid ${h.openPaid === 1 ? "message" : "messages"} from the last ${rules.openPpvDays} days still unopened` : `no unopened paid photo from the last ${rules.openPpvDays} days`}`,
+    priceAnchorUsd(i) ? `His price level: about $${priceAnchorUsd(i)} (the higher of his average tip and his average paid message). Singles go at or above it; a $3-5 offer to a fan above that level is the weak-pricing mistake.` : "",
     rules.priceGuide,
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 }
 
 /** Owner, 10 Nov 2026: true when he has never paid anything (no purchase in the chat, $0 spent). Unknown spend or a VIP is not a first buyer. */
