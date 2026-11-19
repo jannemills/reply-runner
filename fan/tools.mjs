@@ -115,6 +115,20 @@ export const TOOLS = [
     },
   },
   {
+    name: "send_tip_photos",
+    description:
+      "Only in the reply to a tip (not a purchase): the tip pays for the paid photos he was offered, so give him paid-stock photos for free in one message. count 1 to 3 (as many as his tip covers: about one photo per $5 to $6 of tip, or as many locked offers as he left unopened, at most 3). Photos he has not seen come from the paid stock; a caption of a few words, no price, never says it is for the tip. Refused outside a tip thank-you and when no unseen paid photo is left.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        text: { type: "string", description: "A few personal words, e.g. \"evo, ovo je tvoje\". No price, no mention of the tip or payment." },
+        count: { type: "integer", minimum: 1, maximum: 3 },
+      },
+      required: ["text", "count"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "ready_for_offer",
     description: "Tell the owner this fan is ready for a photo offer. Sends nothing to him. Only when you want to sell and send_photo is refused for lack of photos or none are available.",
     inputSchema: {
@@ -226,13 +240,14 @@ export class JobTools {
    * @param {string=} o.ignoreListUuid
    * @param {() => Promise<{ok: boolean, reason?: string}>} o.gate asks the Worker whether sending is still allowed (pause, daily cap)
    */
-  constructor({ api, fanUuid, newestUuid, followUp, thanks, noSale, vip, trimChat, research, sendAt, rules, usaListUuid, ignoreListUuid, gate, sleep, now, random }) {
+  constructor({ api, fanUuid, newestUuid, followUp, thanks, tipGift, noSale, vip, trimChat, research, sendAt, rules, usaListUuid, ignoreListUuid, gate, sleep, now, random }) {
     this.api = api;
     this.research = !!research;
     this.fanUuid = fanUuid;
     this.newestUuid = newestUuid;
     this.followUp = followUp;
     this.thanks = !!thanks;
+    this.tipGift = !!tipGift; // owner, 19 Nov 2026: a tip pays for the paid photos he was offered, so the thank-you may carry free paid-stock photos
     this.noSale = !!noSale;
     this.vip = !!vip;
     this.trimChat = !!trimChat;
@@ -320,6 +335,8 @@ export class JobTools {
           () => this.#sendMomentPhotos(args),
           this.momentSets >= (this.vip ? VIP_MOMENT_SETS_PER_REPLY : MOMENT_SETS_PER_REPLY),
         );
+      case "send_tip_photos":
+        return this.#exclusive("One photo message per reply. Stop here.", () => this.#sendTipPhotos(args), this.photoSent || this.momentSent);
       case "ready_for_offer":
         if (this.noSale) return refuse("He is sold nothing after a refund or chargeback. Keep the chat warm and friendly.");
         this.alerts.push({ kind: "offer", reason: String(args.reason ?? "") });
@@ -628,6 +645,44 @@ export class JobTools {
     this.momentSent = true;
     this.momentSets++;
     return ok(`Sent ${uuids.length} photos from the ${set.scene ?? "photo"} set. That set is used for him now.`);
+  }
+
+  /**
+   * Owner, 19 Nov 2026 ("when he tips we can send ppv photo/s for free because he tipped us"): the reply to a tip may carry
+   * 1 to 3 unseen photos from the paid stock, free, in one message. Not for purchases, follow-ups or after a refund.
+   */
+  async #sendTipPhotos(args) {
+    const { api, fanUuid } = this;
+    if (!this.tipGift) return refuse("Only in the reply to a tip. Stop here.");
+    if (this.followUp) return refuse("No photos in a follow-up. Stop here.");
+    if (this.noSale) return refuse("He is sold nothing after a refund or chargeback. Stop here.");
+    if (isHandedOver(await api.getNotes(fanUuid), this.now())) return refuse("This chat is with a person. Stop here.");
+    const gate = await this.gate();
+    if (!gate.ok) return refuse(gate.reason ?? "Not allowed now. Stop here.");
+    const text = finalText(String(args.text ?? ""));
+    if (!text || text.length > 200 || text.includes("\n")) return refuse("Refused: one short line, at most 200 characters, no links, no mention of AI.");
+    const count = Math.min(Math.max(Math.trunc(Number(args.count)) || 1, 1), 3);
+    const messages = await this.readChat(SALES_HISTORY_MESSAGES);
+    const anchor = this.replied ? this.sentUuid : this.newestUuid;
+    if (!anchor || !this.#anchorHolds(messages, anchor)) {
+      this.wroteAgain = true;
+      return refuse("The chat changed. Send nothing more. Stop here.");
+    }
+    const history = await this.#history(messages);
+    const pool = await this.#getPool();
+    const left = pool ? paidCandidates(pool, history, this.vip) : [];
+    if (!left.length) return refuse("No unseen paid photo is left for him. Send one free photo with send_photo kind free instead, or words only.");
+    const bag = [...left];
+    const uuids = [];
+    while (uuids.length < count && bag.length) uuids.push(bag.splice(Math.floor(this.random() * bag.length), 1)[0].uuid);
+    if (this.replied) await this.#wait(typingDelayMs(text));
+    await api.sendPhotos(fanUuid, text, uuids);
+    await this.#noteSent(uuids);
+    const newest = (await api.fetchMessages(fanUuid).catch(() => []))[0];
+    if (newest && newest.sender.uuid !== fanUuid) this.sentUuid = newest.uuid;
+    this.replied = true;
+    this.photoSent = true;
+    return ok(`Sent ${uuids.length} paid-stock photo${uuids.length > 1 ? "s" : ""} for free as the answer to his tip.`);
   }
 
   /** Several paid photos in one message with one free preview. Same gates as a paid photo; wider price range. */

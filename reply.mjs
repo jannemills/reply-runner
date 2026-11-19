@@ -180,6 +180,7 @@ if (jobRes.status === 404) {
       newestUuid: newestPersonal(messages)?.uuid,
       followUp: followUp || reengage || (!!engaged && !hasWritten), // no photos in these
       thanks,
+      tipGift: thanks && !job.tip?.purchase, // a tip, not a purchase: the thank-you may carry free paid-stock photos (owner, 19 Nov 2026)
       noSale: !!job.noSale,
       vip: !!job.vip,
       trimChat: !!job.trimChat,
