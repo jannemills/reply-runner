@@ -1,15 +1,34 @@
-// Runs the Claude CLI: a filter with no tools, then an agent that may use only the job's own tools.
+// Runs Claude using the selected billing mode and the job's own tools.
 // Never print the prompts or Claude's output: they can contain private text.
 import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-export function runClaude(prompt, args, effort = "low", workDir) {
+export function runClaude({ prompt, model, system, schema, effort = "low", workDir, tools = [], allowedTools = [], maxTurns, mcpServers }) {
+  const mode = process.env.FANVUE_CLAUDE_MODE || "subscription";
+  const cwd = workDir ?? mkdtempSync(join(tmpdir(), "reply-"));
+  if (mode === "api") {
+    return runWithApi(prompt, {
+      cwd, model, systemPrompt: system, tools, allowedTools, effort, maxTurns, mcpServers,
+      outputFormat: schema && { type: "json_schema", schema },
+    });
+  }
+  if (mode !== "subscription") throw new Error("claude failed: invalid Fanvue processing mode");
+
+  const args = ["--model", model, "--tools", tools.join(","), "--system-prompt", system];
+  if (schema) args.push("--json-schema", JSON.stringify(schema));
+  if (maxTurns) args.push("--max-turns", String(maxTurns));
+  if (mcpServers) {
+    const config = join(cwd, "mcp.json");
+    writeFileSync(config, JSON.stringify({ mcpServers }), { mode: 0o600 });
+    args.push("--mcp-config", config);
+  }
+  if (allowedTools.length) args.push("--allowedTools", allowedTools.join(","));
+
   const { PATH, HOME, CLAUDE_CODE_OAUTH_TOKEN } = process.env;
   return new Promise((resolve, reject) => {
     // An empty folder and a minimal environment, so nothing else can reach the conversation.
-    const cwd = workDir ?? mkdtempSync(join(tmpdir(), "reply-"));
     const child = spawn(
       "claude",
       ["-p", "--output-format", "json", "--effort", effort, "--strict-mcp-config", "--setting-sources", "", "--no-session-persistence", ...args],
@@ -29,6 +48,43 @@ export function runClaude(prompt, args, effort = "low", workDir) {
   });
 }
 
+async function runWithApi(prompt, options) {
+  const { PATH, HOME, ANTHROPIC_API_KEY } = process.env;
+  if (!ANTHROPIC_API_KEY) throw new Error("claude failed: cannot authenticate without API key");
+  try {
+    const { query } = await import("@anthropic-ai/claude-agent-sdk");
+    for await (const message of query({
+      prompt,
+      options: {
+        ...options,
+        env: { PATH, HOME, ANTHROPIC_API_KEY },
+        settingSources: [],
+        strictMcpConfig: true,
+        persistSession: false,
+        permissionMode: "dontAsk",
+      },
+    })) {
+      if (message.type === "system" && message.subtype === "init" && message.apiKeySource !== "ANTHROPIC_API_KEY") {
+        return { is_error: true, result: "could not authenticate with the configured API key" };
+      }
+      if (message.type === "assistant" && message.error) {
+        if (message.error === "rate_limit" || message.error === "billing_error") {
+          return { is_error: true, result: "API rate limit or credit limit" };
+        }
+        if (message.error === "authentication_failed") {
+          return { is_error: true, result: "could not authenticate with the API" };
+        }
+      }
+      if (message.type === "result") {
+        return { is_error: message.is_error, structured_output: message.structured_output };
+      }
+    }
+  } catch {
+    // The SDK's raw errors can include private request or tool details.
+  }
+  return { is_error: true };
+}
+
 function failure(result) {
   // Only known failures are named: other result text could quote the chat.
   const known = /authenticate|limit/i.test(result.result ?? "") ? result.result.slice(0, 120) : "no usable answer";
@@ -36,7 +92,7 @@ function failure(result) {
 }
 
 export async function runFilter({ model, system, prompt, schema }) {
-  const result = await runClaude(prompt, ["--model", model, "--tools", "", "--system-prompt", system, "--json-schema", JSON.stringify(schema)]);
+  const result = await runClaude({ model, system, prompt, schema });
   if (result.is_error) throw failure(result);
   const answer = result.structured_output;
   if (answer?.verdict !== "safe" && answer?.verdict !== "blocked") throw failure(result);
@@ -44,17 +100,13 @@ export async function runFilter({ model, system, prompt, schema }) {
 }
 
 export async function runAgent({ model, system, prompt, toolNames, mcpUrl, mcpKey }) {
-  const config = join(mkdtempSync(join(tmpdir(), "mcp-")), "mcp.json");
-  writeFileSync(config, JSON.stringify({ mcpServers: { chat: { type: "http", url: mcpUrl, headers: { "x-tool-key": mcpKey } } } }), { mode: 0o600 });
   // Owner, 15 Nov 2026: Sonnet (fans who spent $0) runs at high effort, Opus and Fable (spenders, VIPs) at medium; the filter stays low.
   const effort = /haiku/i.test(model) ? "low" : "medium"; // 17 Nov 2026 (token budget): Sonnet for $0 fans lowered from high to medium; greetings run on Haiku at low
-  const result = await runClaude(prompt, [
-    "--model", model,
-    "--tools", "",
-    "--mcp-config", config,
-    "--allowedTools", toolNames.map((t) => `mcp__chat__${t}`).join(","),
-    "--max-turns", /haiku/i.test(model) ? "4" : /sonnet/i.test(model) ? "5" : "10",
-    "--system-prompt", system,
-  ], effort);
+  const result = await runClaude({
+    model, system, prompt, effort,
+    mcpServers: { chat: { type: "http", url: mcpUrl, headers: { "x-tool-key": mcpKey } } },
+    allowedTools: toolNames.map((name) => `mcp__chat__${name}`),
+    maxTurns: /haiku/i.test(model) ? 4 : /sonnet/i.test(model) ? 5 : 10,
+  });
   if (result.is_error) throw failure(result);
 }

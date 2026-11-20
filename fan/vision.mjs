@@ -36,12 +36,16 @@ export async function classifyPhoto(api, fanUuid, m) {
     if (!res.ok) return null;
     const dir = mkdtempSync(join(tmpdir(), "look-"));
     writeFileSync(join(dir, "photo.jpg"), Buffer.from(await res.arrayBuffer()));
-    const result = await runClaude(
-      "Read the file photo.jpg in the current folder and classify it. kind: face_selfie = a clear picture of a person's face or a normal selfie; body_clothed = a person's body, clothed; explicit_nude = nudity or genitals; object_or_place = an object, food, car, landscape, room; pet_or_animal; screenshot_or_text; meme_or_other. note: at most 12 neutral words saying what it is, with no explicit detail.",
-      ["--model", "claude-sonnet-5-5", "--tools", "Read", "--allowedTools", "Read", "--max-turns", "3", "--json-schema", JSON.stringify(SCHEMA), "--system-prompt", "You label images for a chat assistant. Answer only with the requested JSON."],
-      "low",
-      dir,
-    );
+    const result = await runClaude({
+      prompt: "Read the file photo.jpg in the current folder and classify it. kind: face_selfie = a clear picture of a person's face or a normal selfie; body_clothed = a person's body, clothed; explicit_nude = nudity or genitals; object_or_place = an object, food, car, landscape, room; pet_or_animal; screenshot_or_text; meme_or_other. note: at most 12 neutral words saying what it is, with no explicit detail.",
+      model: "claude-sonnet-5-5",
+      tools: ["Read"],
+      allowedTools: ["Read"],
+      maxTurns: 3,
+      schema: SCHEMA,
+      system: "You label images for a chat assistant. Answer only with the requested JSON.",
+      workDir: dir,
+    });
     const a = result.structured_output;
     return PHOTO_KINDS.includes(a?.kind) ? { kind: a.kind, note: String(a.note ?? "").slice(0, 80) } : null;
   } catch {

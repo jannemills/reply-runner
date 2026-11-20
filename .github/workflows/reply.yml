@@ -3,22 +3,44 @@ name: Reply
 on:
   repository_dispatch:
     types: [reply]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   reply:
+    if: github.event_name == 'repository_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 8
+    env:
+      FANVUE_CLAUDE_MODE: ${{ vars.FANVUE_CLAUDE_MODE || 'subscription' }}
     steps:
       - uses: actions/checkout@v4
       - name: Install Claude Code
+        if: env.FANVUE_CLAUDE_MODE == 'subscription'
         run: npm install -g @anthropic-ai/claude-code@2.1.316
+      - name: Install Agent SDK
+        if: env.FANVUE_CLAUDE_MODE == 'api'
+        run: npm ci
       - name: Run the job
         env:
           JOB_ID: ${{ github.event.client_payload.job }}
           WORKER_URL: ${{ secrets.WORKER_URL }}
           JOB_SECRET: ${{ secrets.JOB_SECRET }}
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ env.FANVUE_CLAUDE_MODE == 'subscription' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
+          ANTHROPIC_API_KEY: ${{ env.FANVUE_CLAUDE_MODE == 'api' && secrets.ANTHROPIC_API_KEY || '' }}
         run: node reply.mjs
+
+  verify-api:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci
+      - name: Verify API mode with synthetic inputs
+        env:
+          FANVUE_CLAUDE_MODE: api
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: node verify-api.mjs
