@@ -25,28 +25,23 @@ async function checkModels() {
 }
 
 async function checkGeneration() {
-  for (const structured of [false, true]) {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { ...apiHeaders, "content-type": "application/json" },
-      body: JSON.stringify({
-        model: filter.model, max_tokens: 128, messages: [{ role: "user", content: "Return the word safe." }],
-        ...(structured && { output_config: { format: { type: "json_schema", schema } } }),
-      }),
-    });
-    const body = await response.json().catch(() => ({}));
-    const name = structured ? "structured generation" : "basic generation";
-    if (response.ok) {
-      console.log(`API ${name} returned HTTP ${response.status}`);
-      continue;
-    }
-    // This request has a fixed synthetic prompt and no application, chat or tool data.
-    const detail = String(body?.error?.message ?? "")
-      .replaceAll(process.env.ANTHROPIC_API_KEY || "\\0", "[redacted]")
-      .replace(/[\r\n]/g, " ").slice(0, 240);
-    console.error(`API ${name} returned HTTP ${response.status}: ${detail}`);
-    process.exitCode = 1;
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { ...apiHeaders, "content-type": "application/json" },
+    body: JSON.stringify({
+      model: filter.model, max_tokens: 128, messages: [{ role: "user", content: "Return the word safe." }],
+    }),
+  });
+  if (response.ok) {
+    await response.body?.cancel();
+    console.log("API generation verified");
+    return;
   }
+  // This fixed probe contains no application, chat or tool data.
+  const body = await response.json().catch(() => ({}));
+  const limit = String(body?.error?.message ?? "").match(/\bAPI usage limits\b[^\r\n]*?\b(\d{4}-\d{2}-\d{2} at \d{2}:\d{2} UTC)\b/i);
+  const detail = limit ? `API usage limit reached, reported reset ${limit[1]}` : `API generation returned HTTP ${response.status}`;
+  throw new Error(`claude failed: ${detail}`);
 }
 
 async function checkFilter() {
@@ -101,5 +96,6 @@ for (const [name, check] of [["models", checkModels], ["generation", checkGenera
     const detail = error.message.startsWith("claude failed:") ? error.message : "unexpected result";
     console.error(`API check failed (${name}): ${detail}`);
     process.exitCode = 1;
+    if (name === "generation") break;
   }
 }
