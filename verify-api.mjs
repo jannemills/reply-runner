@@ -11,8 +11,17 @@ const schema = {
   additionalProperties: false,
 };
 const filter = { model: "claude-haiku-5-5", system: "Say safe for HELLO and blocked for BLOCK.", schema };
+const models = ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-2"];
 
 try {
+  for (const model of models) {
+    const response = await fetch(`https://api.anthropic.com/v1/models/${model}`, {
+      headers: { "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+    });
+    if (!response.ok) throw new Error(`claude failed: API model lookup returned ${response.status} for ${model}`);
+  }
+  console.log("API model access verified");
+
   for (const [prompt, expected] of [["HELLO", "safe"], ["BLOCK", "blocked"]]) {
     assert.equal((await runFilter({ ...filter, prompt })).verdict, expected);
   }
@@ -28,7 +37,7 @@ try {
     },
   }, [tool]);
   try {
-    for (const model of ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-2"]) {
+    for (const model of models) {
       calls = 0;
       await runAgent({
         model,

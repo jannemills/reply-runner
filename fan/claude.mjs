@@ -74,20 +74,26 @@ async function runWithApi(prompt, options) {
         if (message.error === "authentication_failed") {
           return { is_error: true, result: "could not authenticate with the API" };
         }
+        if (message.error === "model_not_found" || message.error === "invalid_request") {
+          return { is_error: true, result: "API rejected the model or request" };
+        }
       }
       if (message.type === "result") {
+        if (message.subtype === "error_max_structured_output_retries") {
+          return { is_error: true, result: "API structured output retries exhausted" };
+        }
         return { is_error: message.is_error, structured_output: message.structured_output };
       }
     }
   } catch {
     // The SDK's raw errors can include private request or tool details.
   }
-  return { is_error: true };
+  return { is_error: true, result: "Agent SDK ended without a result" };
 }
 
 function failure(result) {
   // Only known failures are named: other result text could quote the chat.
-  const known = /authenticate|limit/i.test(result.result ?? "") ? result.result.slice(0, 120) : "no usable answer";
+  const known = /authenticate|limit|^API rejected the model or request$|^API structured output retries exhausted$|^Agent SDK ended without a result$/i.test(result.result ?? "") ? result.result.slice(0, 120) : "no usable answer";
   return new Error(`claude failed: ${known}`);
 }
 
