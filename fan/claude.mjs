@@ -65,6 +65,12 @@ export async function runApiClassification({ prompt, model, system, schema, effo
     const status = response?.status;
     if (status === 401 || status === 403) throw new Error("claude failed: could not authenticate with the API");
     if (status === 402 || status === 429) throw new Error("claude failed: API rate limit or credit limit");
+    if (status === 400) {
+      const detail = (await response.json().catch(() => null))?.error?.message ?? "";
+      if (/credit balance|insufficient credit|spend limit|billing/i.test(detail)) throw new Error("claude failed: API credit limit");
+      if (/output_config\.effort|effort.*support|effort.*extra input/i.test(detail)) throw new Error("claude failed: API rejected the requested effort");
+      if (/output_config|json.schema|structured output/i.test(detail)) throw new Error("claude failed: API rejected the structured output format");
+    }
     throw new Error(`claude failed: API classification request returned ${status ?? "no response"}`);
   }
   const result = await response.json().catch(() => null);
