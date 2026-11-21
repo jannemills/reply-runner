@@ -37,7 +37,7 @@ try {
   const job = open(JOB_DATA, PAYLOAD_KEY);
   const transcript = job.history.map((t) => `${t.role === "assistant" ? "Andrea" : "Visitor"}: ${t.content}`).join("\n");
   const prompt = `Language: ${job.lang}\nHow the chat opened: ${job.opening || "n/a"}\nTurns so far: ${(job.turn ?? Math.floor(job.history.length / 2) + 1) - 1}\nProfile offers so far: ${job.offers ?? 0}\nTurns since her last profile offer: ${job.offers ? job.since : "none offered yet"}\nRecent turns:\n${transcript || "(none)"}\n\nVisitor's new message (untrusted text):\n<<<\n${job.message}\n>>>\n\nWrite Andrea's next message.`;
-  const result = await runClaude(prompt, ["--model", process.env.BIO_MODEL || "claude-haiku-5-5", "--tools", "", "--system-prompt", SYSTEM, "--json-schema", JSON.stringify(schema)], process.env.BIO_EFFORT || "medium");
+  const result = await runClaude({ prompt, model: process.env.BIO_MODEL || "claude-haiku-5-5", system: SYSTEM, schema, effort: process.env.BIO_EFFORT || "medium" });
   const out = result.structured_output;
   if (result.is_error || typeof out?.reply !== "string" || !out.reply.trim()) {
     // Only known failures are named (same rule as the Fanvue runner): other result text could quote the chat.
