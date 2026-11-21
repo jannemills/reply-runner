@@ -107,6 +107,22 @@ if (res.status === 404) {
     result.error ??= `online: ${err.status ?? "failed"}`;
   }
 
+  // Win-back (owner, 22 Nov 2026): fans whose chat has been silent a long time after her last message. Only ids go to the
+  // Worker, which applies the cooldown, daily cap, quiet hours and the runner's own "already nudged" checks.
+  try {
+    const days = Number(ctx.winbackDays) || 0;
+    if (days > 0 && allFans) {
+      const cutoff = Date.now() - days * 86_400_000;
+      result.dormant = allFans
+        .filter((f) => f.lastAt && f.lastAt < cutoff && !f.lastByFan && !excluded.has(f.uuid) && inScope(f.uuid) && !skip.has(f.uuid) && !(ctx.ignoreListUuid && f.lists.includes(ctx.ignoreListUuid)))
+        .sort((a, b) => b.lastAt - a.lastAt)
+        .map((f) => f.uuid)
+        .slice(0, 200);
+    }
+  } catch (err) {
+    result.error ??= `winback: ${err.status ?? "failed"}`;
+  }
+
   const posted = await fetch(`${WORKER_URL}/sweep`, { method: "POST", headers, body: JSON.stringify(result) });
   console.log(`sweep posted: ${posted.status}, ${result.candidates?.length ?? 0} waiting, ${result.listed ?? 0} listed, ${result.online?.length ?? 0} online`);
   }
