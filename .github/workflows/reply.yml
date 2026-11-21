@@ -28,6 +28,8 @@ jobs:
           JOB_ID: ${{ github.event.client_payload.job }}
           WORKER_URL: ${{ secrets.WORKER_URL }}
           JOB_SECRET: ${{ secrets.JOB_SECRET }}
+          WIRO_API_KEY: ${{ secrets.WIRO_API_KEY }}
+          WIRO_API_SECRET: ${{ secrets.WIRO_API_SECRET }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ env.FANVUE_CLAUDE_MODE == 'subscription' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
           ANTHROPIC_API_KEY: ${{ env.FANVUE_CLAUDE_MODE == 'api' && secrets.ANTHROPIC_API_KEY || '' }}
         run: node reply.mjs

@@ -156,7 +156,8 @@ if (jobRes.status === 404) {
     // His comment goes to the model here, never through the Worker.
     if (comment) agent.prompt = `${agent.prompt}\n\n<his_comment>\n${comment}\n</his_comment>`;
     // Chat review, 14 Nov 2026: a fan on the English (USA) list got Serbian until he asked "English?".
-    if (job.usaListUuid && (await api.fanLists(fanUuid).catch(() => [])).includes(job.usaListUuid))
+    const isUsa = !!job.usaListUuid && (await api.fanLists(fanUuid).catch(() => [])).includes(job.usaListUuid);
+    if (isUsa)
       agent.prompt = `${agent.prompt}\n\nHe is on your English list: write to him in English, also if earlier messages or automations to him were in Serbian, unless he himself writes to you in another language.`;
 
     // Owner, 17 Nov 2026 (token budget): his last 20 messages and her notes go into the first prompt, in the same format read_chat uses,
@@ -183,6 +184,7 @@ if (jobRes.status === 404) {
       tipGift: thanks && !job.tip?.purchase, // a tip, not a purchase: the thank-you may carry free paid-stock photos (owner, 19 Nov 2026)
       noSale: !!job.noSale,
       vip: !!job.vip,
+      voice: !!job.voice && !isUsa, // owner, 21 Nov 2026: voice notes only for Serbian fans on VOICE_FAN_UUIDS
       trimChat: !!job.trimChat,
       sendAt: followUp ? undefined : job.sendAt,
       rules: job.rules,

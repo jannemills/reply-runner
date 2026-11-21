@@ -120,6 +120,35 @@ export function createApi(token, base = process.env.FAN_API_URL || "https://api.
     async sendPhotos(fanUuid, text, mediaUuids) {
       await call(`/chats/${fanUuid}/message`, { method: "POST", body: JSON.stringify({ text, mediaUuids }) });
     },
+    /** One voice note: audio media with no text. Upload it with uploadAudio first and wait until it is ready. */
+    async sendVoice(fanUuid, mediaUuid) {
+      await call(`/chats/${fanUuid}/message`, { method: "POST", body: JSON.stringify({ mediaUuids: [mediaUuid] }) });
+    },
+    /**
+     * Uploads audio bytes to the vault (needs the write:media scope) and returns the mediaUuid once Fanvue has processed it.
+     * Fanvue's multipart upload: open a session, PUT each part to its signed URL, complete, poll until ready.
+     */
+    async uploadAudio(name, filename, bytes, { sleep = (ms) => new Promise((r) => setTimeout(r, ms)), maxWaitMs = 30_000 } = {}) {
+      const session = await (await call("/media/uploads", { method: "POST", body: JSON.stringify({ name, filename, mediaType: "audio", sizeBytes: bytes.length }) })).json();
+      const total = session.totalParts ?? Math.ceil(bytes.length / session.partSize);
+      const signed = await (await call(`/media/uploads/${encodeURIComponent(session.uploadId)}/parts/urls?from=1&to=${total}`)).json();
+      const parts = [];
+      for (const { partNumber, url } of signed.parts) {
+        const start = (partNumber - 1) * session.partSize;
+        const put = await fetch(url, { method: "PUT", body: bytes.subarray(start, start + session.partSize) });
+        if (!put.ok) throw new FanError(put.status, `PUT upload part failed: ${put.status}`);
+        parts.push({ PartNumber: partNumber, ETag: put.headers.get("etag") ?? "" });
+      }
+      await call(`/media/uploads/${encodeURIComponent(session.uploadId)}`, { method: "PATCH", body: JSON.stringify({ parts }) });
+      const started = Date.now();
+      for (;;) {
+        const media = await (await call(`/media/${session.mediaUuid}`)).json();
+        if (media.status === "ready") return session.mediaUuid;
+        if (media.status === "error") throw new FanError(0, "audio processing failed");
+        if (Date.now() - started > maxWaitMs) throw new FanError(0, "audio not ready in time");
+        await sleep(1000);
+      }
+    },
     async addToList(listUuid, userUuids) {
       for (let i = 0; i < userUuids.length; i += 100) {
         await call(`/chats/lists/custom/${listUuid}/members`, {

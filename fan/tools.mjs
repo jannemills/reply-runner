@@ -20,6 +20,7 @@ import {
   withUsedMomentSet,
 } from "./chat.mjs";
 import { withTypo } from "./typo.mjs";
+import { MAX_VOICE_WORDS, speak, spokenText, voiceName, wordCount } from "./voice.mjs";
 import { buildPool, poolForFan, isFirstBuyer, freeTalkRun, MAX_FREE_STREAK, VIP_MAX_FREE_STREAK, notBuyingRefusal, paidCandidates, photoRefusal, priceAnchorUsd, pickPack, pickPhoto, profileText, salesHistory } from "./sales.mjs";
 
 const none = { type: "object", properties: {}, additionalProperties: false };
@@ -240,7 +241,9 @@ export class JobTools {
    * @param {string=} o.ignoreListUuid
    * @param {() => Promise<{ok: boolean, reason?: string}>} o.gate asks the Worker whether sending is still allowed (pause, daily cap)
    */
-  constructor({ api, fanUuid, newestUuid, followUp, thanks, tipGift, noSale, vip, trimChat, research, sendAt, rules, usaListUuid, ignoreListUuid, gate, sleep, now, random }) {
+  constructor({ api, fanUuid, newestUuid, followUp, thanks, tipGift, noSale, vip, trimChat, research, voice, speakFn, sendAt, rules, usaListUuid, ignoreListUuid, gate, sleep, now, random }) {
+    this.voice = !!voice; // owner, 21 Nov 2026: this fan gets short Serbian lines as voice notes (VOICE_FAN_UUIDS)
+    this.speakFn = speakFn ?? speak;
     this.api = api;
     this.research = !!research;
     this.fanUuid = fanUuid;
@@ -516,6 +519,20 @@ export class JobTools {
       }
     }
 
+    // Owner, 21 Nov 2026: a voice fan gets his short lines as audio. At most 2-3 words; a longer reply is sent back once to be
+    // shortened, then goes out as text so he is never left unanswered. If Wiro or the upload fails, the same words go out as text.
+    if (this.voice && !this.research) {
+      if (wordCount(spokenText(text)) > MAX_VOICE_WORDS) {
+        if (!this.voiceNudged) {
+          this.voiceNudged = true;
+          return refuse(`Not sent: he gets voice notes, so your reply must be only ${MAX_VOICE_WORDS} words or fewer in Serbian (for example "gde si bre", "šta mi radiš"), with his name if you know it. Shorten it and send_reply again.`);
+        }
+      } else if (await this.#sendVoice(text)) {
+        await api.putNotes(fanUuid, withReplyCount(await api.getNotes(fanUuid))).catch(() => {});
+        return ok("Sent as a voice note.");
+      }
+    }
+
     const [first, ...rest] = splitReply(text);
     await this.#sendPart(first);
     for (const part of rest) {
@@ -526,6 +543,24 @@ export class JobTools {
     }
     await api.putNotes(fanUuid, withReplyCount(await api.getNotes(fanUuid))).catch(() => {});
     return ok("Sent.");
+  }
+
+  /** Speaks the line, stores it as a voice note and sends it. Returns false (nothing sent) when any step fails. */
+  async #sendVoice(text) {
+    const spoken = spokenText(text);
+    if (!spoken) return false;
+    try {
+      const bytes = await this.speakFn(spoken);
+      const mediaUuid = await this.api.uploadAudio(voiceName(bytes), "voice.mp3", bytes);
+      await this.api.sendVoice(this.fanUuid, mediaUuid);
+    } catch (err) {
+      console.error(`voice failed${err?.status ? `: ${err.status}` : ""}`); // fixed text, never the line
+      return false;
+    }
+    const newest = (await this.api.fetchMessages(this.fanUuid).catch(() => []))[0];
+    this.sentUuid = newest && newest.sender.uuid !== this.fanUuid ? newest.uuid : undefined;
+    this.replied = true;
+    return true;
   }
 
   /** Sends one message and marks the job replied. The newest message anchors the follow-up; if this read fails there is simply none. */
