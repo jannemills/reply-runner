@@ -172,10 +172,10 @@ export function createApi(token, base = process.env.FAN_API_URL || "https://api.
         .filter((chat) => chat.unreadMessagesCount > 0 || chat.lastMessage?.senderRole === "FAN")
         .map((chat) => ({ uuid: chat.user.uuid, lists: (chat.customLists ?? []).map((l) => l.uuid) }));
     },
-    /** Every non-creator chat with the custom lists the fan is on. */
+    /** Every non-creator chat with the custom lists the fan is on, and when the last message was sent and by whom. */
     async listAllFans() {
       const chats = await pages("/chats?filter=exclude_creators", 20);
-      return chats.map((chat) => ({ uuid: chat.user.uuid, lists: (chat.customLists ?? []).map((l) => l.uuid) }));
+      return chats.map((chat) => ({ uuid: chat.user.uuid, lists: (chat.customLists ?? []).map((l) => l.uuid), lastAt: Date.parse(chat.lastMessage?.sentAt ?? "") || 0, lastByFan: chat.lastMessage?.senderRole === "FAN" }));
     },
     /**
      * Who of these fans is online now, 100 per call. Fans who hide their status read as offline with no lastSeenAt, so
