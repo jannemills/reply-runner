@@ -110,13 +110,13 @@ if (res.status === 404) {
   // Win-back (owner, 22 Nov 2026): fans whose chat has been silent a long time after her last message. Only ids go to the
   // Worker, which applies the cooldown, daily cap, quiet hours and the runner's own "already nudged" checks.
   try {
-    const days = Number(ctx.winbackDays) || 0;
+    const days = Math.min(Number(ctx.winbackDays) || 0, Number(ctx.winbackGapDays) || Infinity);
     if (days > 0 && allFans) {
       const cutoff = Date.now() - days * 86_400_000;
       result.dormant = allFans
         .filter((f) => f.lastAt && f.lastAt < cutoff && !f.lastByFan && !excluded.has(f.uuid) && inScope(f.uuid) && !skip.has(f.uuid) && !(ctx.ignoreListUuid && f.lists.includes(ctx.ignoreListUuid)))
         .sort((a, b) => b.lastAt - a.lastAt)
-        .map((f) => f.uuid)
+        .map((f) => ({ fan: f.uuid, at: f.lastAt }))
         .slice(0, 200);
     }
   } catch (err) {
