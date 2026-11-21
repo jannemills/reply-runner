@@ -14,6 +14,8 @@ if (!/^[0-9a-f-]{36}$/.test(JOB_ID ?? "")) throw new Error("bad job id");
 // A like or comment on her post gets a message only if she has not written to him in this long (no double texting).
 const OWNER_ACTIVE_MS = 8 * 60_000; // the bot keeps out of a chat this long after Andrea typed in it herself (job timeout is 15 min)
 const PRELOAD_MESSAGES = 20;
+const MAX_WINBACK = 3;
+const MAX_UNANSWERED_WINBACK = MAX_WINBACK; // owner, 22 Nov 2026: a win-back streak may reach 3 unanswered messages
 const MAX_UNANSWERED_RUNS = 2;      // no follow-up or check-in once she already wrote this many times without an answer
 
 const jobUrl = `${WORKER_URL}/job/${JOB_ID}`;
@@ -128,7 +130,7 @@ if (jobRes.status === 404) {
     if (!wrote && !followUp && !thanks && !reaction && !engaged && !reengage) return void (await post("", { done: true, skipped: "answered" })); // someone answered him by hand
     // Chat review, 14 Nov 2026: at most two unanswered messages in a row from her before he writes again (a check-in the owner asked for still goes).
     const ownerAsked = !!job.reengage && job.reengage.quietHours < 0.1;
-    if ((followUp || reengage) && !ownerAsked && unansweredRuns(messages, fanUuid) >= MAX_UNANSWERED_RUNS)
+    if ((followUp || reengage) && !ownerAsked && unansweredRuns(messages, fanUuid) >= (reengage && quietMs >= 2 * 86_400_000 ? MAX_UNANSWERED_WINBACK : MAX_UNANSWERED_RUNS))
       return void (await post("", { done: true, skipped: "answered" }));
 
     const verdict = await runFilter({
