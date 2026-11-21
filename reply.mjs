@@ -140,16 +140,15 @@ if (jobRes.status === 404) {
     verdictP.catch(() => {}); // awaited below; no unhandled rejection if we return early
     const plain = wrote && !followUp && !thanks && !reaction && !engaged && !reengage && !comment;
     const lowSignal = plain ? lowSignalKind(newFanMessages(messages, fanUuid)) : null;
-    const promptP = post("/prompt", {
+    const promptBody = {
       followUp,
       ...(lowSignal ? { lowSignal } : {}),
       ...(thanks ? { thanks } : {}),
       ...(reaction ? { reaction } : {}),
       ...(engaged ? { engaged } : {}),
       ...(reengage ? { reengageDays: Math.max(1, Math.round(quietMs / 86_400_000)), ...(hasWritten ? {} : { neverWrote: true }) } : {}),
-    });
-    promptP.catch(() => {});
-    // Owner, 22 Nov 2026 (replies within a minute): the safety filter, the prompt, his lists and his notes load in parallel.
+    };
+    // Owner, 22 Nov 2026 (replies within a minute): the safety filter, his lists and his notes load in parallel; the prompt is fetched only after the filter passes.
     const usaP = job.usaListUuid ? api.fanLists(fanUuid).catch(() => []) : Promise.resolve([]);
     const notesP = job.preload ? api.getNotes(fanUuid).catch(() => "") : Promise.resolve("");
     const verdict = await verdictP;
@@ -159,7 +158,7 @@ if (jobRes.status === 404) {
     }
     console.log("filter: safe");
 
-    const promptRes = await promptP;
+    const promptRes = await post("/prompt", promptBody);
     if (!promptRes.ok) throw new Error(`fetching the prompt failed: ${promptRes.status}`);
     const agent = await promptRes.json();
     // His comment goes to the model here, never through the Worker.
