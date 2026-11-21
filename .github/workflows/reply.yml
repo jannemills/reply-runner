@@ -20,8 +20,16 @@ jobs:
       - name: Install Claude Code
         if: env.FANVUE_CLAUDE_MODE == 'subscription'
         run: npm install -g @anthropic-ai/claude-code@2.1.316
-      - name: Install Agent SDK
+      # Owner, 22 Nov 2026 (replies within a minute): node_modules is cached, so the install (about 8 s) is skipped on a hit.
+      - name: Cache Agent SDK
         if: env.FANVUE_CLAUDE_MODE == 'api'
+        id: sdk
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: sdk-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Install Agent SDK
+        if: env.FANVUE_CLAUDE_MODE == 'api' && steps.sdk.outputs.cache-hit != 'true'
         run: npm ci
       - name: Run the job
         env:
