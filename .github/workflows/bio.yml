@@ -11,20 +11,26 @@ jobs:
   reply:
     runs-on: ubuntu-24.04
     timeout-minutes: 4
+    env:
+      FANVUE_CLAUDE_MODE: ${{ vars.FANVUE_CLAUDE_MODE || 'subscription' }}
     steps:
       - uses: actions/checkout@v4
-      # Cached install: restoring the cache is faster than installing on every message.
       - name: Restore Claude Code
+        if: env.FANVUE_CLAUDE_MODE == 'subscription'
         id: claude-cache
         uses: actions/cache@v4
         with:
           path: ~/.claude-cli
           key: claude-code-2.1.316-${{ runner.os }}
       - name: Install Claude Code
-        if: steps.claude-cache.outputs.cache-hit != 'true'
+        if: env.FANVUE_CLAUDE_MODE == 'subscription' && steps.claude-cache.outputs.cache-hit != 'true'
         run: npm install -g --prefix ~/.claude-cli @anthropic-ai/claude-code@2.1.316
       - name: Add Claude Code to PATH
+        if: env.FANVUE_CLAUDE_MODE == 'subscription'
         run: echo "$HOME/.claude-cli/bin" >> "$GITHUB_PATH"
+      - name: Install Agent SDK
+        if: env.FANVUE_CLAUDE_MODE == 'api'
+        run: npm ci
       - name: Run the job
         env:
           JOB_ID: ${{ github.event.client_payload.job }}
@@ -32,7 +38,8 @@ jobs:
           PAYLOAD_KEY: ${{ secrets.BIO_PAYLOAD_KEY }}
           WORKER_URL: ${{ secrets.BIO_WORKER_URL }}
           JOB_SECRET: ${{ secrets.BIO_JOB_SECRET }}
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ env.FANVUE_CLAUDE_MODE == 'subscription' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
+          ANTHROPIC_API_KEY: ${{ env.FANVUE_CLAUDE_MODE == 'api' && secrets.ANTHROPIC_API_KEY || '' }}
           BIO_MODEL: ${{ vars.BIO_MODEL }}
           BIO_EFFORT: ${{ vars.BIO_EFFORT }}
         run: node bio.mjs
