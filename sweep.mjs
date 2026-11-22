@@ -74,6 +74,8 @@ if (res.status === 404) {
   try {
     allFans = await api.listAllFans();
     // Owner, 7 Nov 2026: nobody on the custom list "ignore" is ever answered; the Worker skips them.
+    // Owner, 22 Nov 2026: a new follower or subscriber (chat created in the last 48 hours) needs a fast reaction: no quiet hours for him.
+    result.newFans = allFans.filter((f) => f.createdAt && Date.now() - f.createdAt < 48 * 3600_000).map((f) => f.uuid);
     if (ctx.usaListUuid) result.english = allFans.filter((f) => f.lists.includes(ctx.usaListUuid)).map((f) => f.uuid); // owner, 15 Nov 2026: English speakers have no quiet hours
     if (ctx.ignoreListUuid) result.ignored = allFans.filter((f) => f.lists.includes(ctx.ignoreListUuid)).map((f) => f.uuid);
     // 16 Nov 2026: these two used to come after the test-list add below; the test list was gone (404 on every sweep), so the
