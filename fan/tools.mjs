@@ -116,6 +116,20 @@ export const TOOLS = [
     },
   },
   {
+    name: "send_selfie",
+    description:
+      "Sends him one or two free selfies of you from the vault folder \"selfie\" (owner, 22 Nov 2026), in one message, with a neutral caption. For when a plain selfie fits: he asks for a selfie, a normal or everyday picture, your face, how you look right now, or wants proof that you are real; also a light free gesture when it fits the chat. Each selfie goes to the same fan only once, ever. Refused in a follow-up, in a chat handed to a person, when the chat changed, and when he already had every selfie.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        text: { type: "string", description: "A neutral playful word or two or an emoji (for example \"evo me\", \"ovako 🙈\"). Nothing about time, place or what is in it, no price." },
+        count: { type: "integer", minimum: 1, maximum: 2, description: "How many selfies to send, 1 (default) or 2." },
+      },
+      required: ["text"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "send_tip_photos",
     description:
       "Only in the reply to a tip (not a purchase): the tip pays for the paid photos he was offered, so give him paid-stock photos for free in one message. count 1 to 3 (as many as his tip covers: about one photo per $5 to $6 of tip, or as many locked offers as he left unopened, at most 3). Photos he has not seen come from the paid stock; a caption of a few words, no price, never says it is for the tip. Refused outside a tip thank-you and when no unseen paid photo is left.",
@@ -191,6 +205,9 @@ export function momentFolders(folders) {
   if (!found.length) return MOMENT_FOLDERS.map((name, index) => ({ name, index, scene: index === 0 ? "taxi" : index === 1 ? "home" : null, createdAt: 0 }));
   return found.sort((a, b) => a.createdAt - b.createdAt || a.index - b.index || a.name.localeCompare(b.name));
 }
+// Owner, 22 Nov 2026: a vault folder of plain selfies. The owner typed it "selife"; both spellings (and "selfies") are the folder.
+export const isSelfieFolder = (name) => /^(selfies?|selife)$/i.test(String(name ?? "").trim());
+const SELFIES_PER_REPLY = 2;
 // Owner, 13 Nov 2026: the "in the moment" sets go out free to anyone, as often as the chat asks for them (was once per 24 hours).
 const MOMENT_GAP_MS = 0;
 // Owner, 13 Nov 2026: never the same photo to the same fan twice. Everything she ever sent him is read this far back.
@@ -338,6 +355,8 @@ export class JobTools {
           () => this.#sendMomentPhotos(args),
           this.momentSets >= (this.vip ? VIP_MOMENT_SETS_PER_REPLY : MOMENT_SETS_PER_REPLY),
         );
+      case "send_selfie":
+        return this.#exclusive("One photo message per reply. Stop here.", () => this.#sendSelfie(args), this.photoSent || this.momentSent);
       case "send_tip_photos":
         return this.#exclusive("One photo message per reply. Stop here.", () => this.#sendTipPhotos(args), this.photoSent || this.momentSent);
       case "ready_for_offer":
@@ -680,6 +699,53 @@ export class JobTools {
     this.momentSent = true;
     this.momentSets++;
     return ok(`Sent ${uuids.length} photos from the ${set.scene ?? "photo"} set. That set is used for him now.`);
+  }
+
+  /**
+   * Owner, 22 Nov 2026 (new vault folder "selfie"): one or two free selfies in one message, when a plain selfie fits. Never the same
+   * photo to the same fan twice (everything sent to him is read back). Not in a follow-up. Free, no streak or first-buyer cap: it
+   * is the everyday proof-of-her photo, and the folder is small.
+   */
+  async #sendSelfie(args) {
+    const { api, fanUuid } = this;
+    if (this.followUp) return refuse("No photos in a follow-up. Stop here.");
+    if (isHandedOver(await api.getNotes(fanUuid), this.now())) return refuse("This chat is with a person. Stop here.");
+    const gate = await this.gate();
+    if (!gate.ok) return refuse(gate.reason ?? "Not allowed now. Stop here.");
+    const text = finalText(String(args.text ?? ""));
+    if (!text || text.length > 200 || text.includes("\n")) return refuse("Refused: one short line, at most 200 characters, no links, no mention of AI.");
+    const messages = await this.readChat(SALES_HISTORY_MESSAGES);
+    const anchor = this.replied ? this.sentUuid : this.newestUuid;
+    if (!anchor || !this.#anchorHolds(messages, anchor)) {
+      this.wroteAgain = true;
+      return refuse("The chat changed. Send nothing more. Stop here.");
+    }
+    const folders = (await Promise.resolve().then(() => api.listFolders()).catch(() => null))?.filter((f) => isSelfieFolder(f.name));
+    if (!folders) return refuse("The selfie folder could not be read this time. Answer in words.");
+    if (!folders.length) return refuse("No selfies are available. Answer in words.");
+    const ever = await this.#everSentMedia();
+    if (!ever) return refuse("His photo history could not be read this time. Send no selfie now; answer in words.");
+    const lists = await Promise.all(
+      folders.map((f) =>
+        api
+          .listFolderMedia(f.name)
+          .then((list) => list.filter((m) => m.status === "ready" && m.mediaType === "image").map((m) => m.uuid))
+          .catch(() => []),
+      ),
+    );
+    const bag = [...new Set(lists.flat())].filter((u) => !ever.has(u));
+    if (!bag.length) return refuse("He already had every selfie. Send none: answer in words, without promising a photo later.");
+    const count = Math.min(Math.max(Math.trunc(Number(args.count)) || 1, 1), SELFIES_PER_REPLY, bag.length);
+    const uuids = [];
+    while (uuids.length < count && bag.length) uuids.push(bag.splice(Math.floor(this.random() * bag.length), 1)[0]);
+    if (this.replied) await this.#wait(typingDelayMs(text));
+    await api.sendPhotos(fanUuid, text, uuids);
+    await this.#noteSent(uuids);
+    const newest = (await api.fetchMessages(fanUuid).catch(() => []))[0];
+    if (newest && newest.sender.uuid !== fanUuid) this.sentUuid = newest.uuid;
+    this.replied = true;
+    this.photoSent = true;
+    return ok(`Sent ${uuids.length} selfie${uuids.length > 1 ? "s" : ""}. ${bag.length ? "" : "That was the last unseen selfie for him."}`.trim());
   }
 
   /**
