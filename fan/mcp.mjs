@@ -32,12 +32,14 @@ export async function handleMcp(rpc, tools, call) {
  */
 export async function startToolServer(jobTools, tools) {
   const key = randomBytes(24).toString("hex");
+  let cannotContact = false; // 24 Nov 2026: a send refused with 400 means Fanvue cannot deliver to him; the job reports it so the Worker stops retrying
   const call = async (name, args) => {
     try {
       const result = await jobTools.call(name, args);
       if (name === "send_reply" || result.isError) console.log(`tool ${name} ${result.isError ? "refused" : "ok"}: ${result.text.slice(0, 60)}`);
       return result;
     } catch (err) {
+      if (err?.status === 400 && name.startsWith("send_")) cannotContact = true;
       console.error(`tool ${name} failed${err?.status ? `: ${err.status}` : ""}${/\(([^)]*)\)$/.exec(err?.message ?? "")?.[0] ?? ""}`);
       return { text: "That did not work. Stop here.", isError: true };
     }
@@ -57,5 +59,5 @@ export async function startToolServer(jobTools, tools) {
     });
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  return { url: `http://127.0.0.1:${server.address().port}/mcp`, key, close: () => server.close() };
+  return { url: `http://127.0.0.1:${server.address().port}/mcp`, key, close: () => server.close(), cannotContact: () => cannotContact };
 }

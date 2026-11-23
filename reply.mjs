@@ -215,7 +215,10 @@ if (jobRes.status === 404) {
     } finally {
       server.close();
     }
+    // 24 Nov 2026: every send was refused with 400 (he cannot be contacted): report it as the failure it is, so the Worker stops retrying him.
+    const report = tools.report();
+    if (server.cannotContact() && !report.replied && !report.sentUuid) return void (await post("", { error: "cannot contact", errorStatus: 400 }));
     // A message after a quiet spell or on a like or comment earns no follow-up, like a follow-up itself.
-    await post("", { done: true, followUp: followUp || reengage || !!engaged, ...tools.report() });
+    await post("", { done: true, followUp: followUp || reengage || !!engaged, ...report });
   }
 }
