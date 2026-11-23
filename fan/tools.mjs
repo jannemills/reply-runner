@@ -99,7 +99,7 @@ export const TOOLS = [
   {
     name: "send_moment_photos",
     description:
-      "Sends him free photos from one \"in the moment\" set (a vault folder of photos from one scene and one moment) in one message, with a neutral caption. You choose how many of its photos go out (count; all of them when left out). Each set is used ONCE per fan: after this send none of its photos can ever go to him again, also the ones you did not send. read_fan_profile lists the sets still unused for him with their scene and size. Refused after two free photo messages in a row without a paid offer between them (then sell a small paid single instead), and when no unused set is left for him.",
+      "Sends him free photos from one \"in the moment\" set (a vault folder of photos from one scene and one moment) in one message, with a neutral caption. You choose how many of its photos go out (count; all of them when left out). Each set is used ONCE per fan: after this send none of its photos can ever go to him again, also the ones you did not send. read_fan_profile lists the sets still unused for him with their scene and size. Refused after four free photo messages in a row (a VIP six) without a paid offer between them (then sell a small paid single instead), and when no unused set is left for him.",
     inputSchema: {
       type: "object",
       properties: {
@@ -213,7 +213,7 @@ const MOMENT_GAP_MS = 0;
 // Owner, 13 Nov 2026: never the same photo to the same fan twice. Everything she ever sent him is read this far back.
 const EVER_SENT_MESSAGES = 3000;
 // Sets per reply: one, and up to three for a VIP (owner, 13 Nov 2026: the top spender wants many photos at once).
-const MOMENT_SETS_PER_REPLY = 1;
+const MOMENT_SETS_PER_REPLY = 2; // owner, 24 Nov 2026: "more in the moment photos" (was 1)
 const VIP_MOMENT_SETS_PER_REPLY = 3;
 
 const ok = (text) => ({ text });
@@ -351,7 +351,7 @@ export class JobTools {
         return this.#exclusive("One photo message per reply. Stop here.", () => this.#sendPack(args), this.photoSent);
       case "send_moment_photos":
         return this.#exclusive(
-          this.vip ? `At most ${VIP_MOMENT_SETS_PER_REPLY} sets per reply. Stop here.` : "One set per reply. Stop here.",
+          this.vip ? `At most ${VIP_MOMENT_SETS_PER_REPLY} sets per reply. Stop here.` : "At most two sets per reply. Stop here.",
           () => this.#sendMomentPhotos(args),
           this.momentSets >= (this.vip ? VIP_MOMENT_SETS_PER_REPLY : MOMENT_SETS_PER_REPLY),
         );
@@ -847,6 +847,14 @@ export class JobTools {
     if (!anchor || !this.#anchorHolds(messages, anchor)) {
       this.wroteAgain = true;
       return refuse("The chat changed. Send nothing more. Stop here.");
+    }
+    // Chat review, 24 Nov 2026: "ovu sam ti sacuvala za sad" went out as a text and then again as the photo's caption.
+    if (!this.captionNudged) {
+      const again = repeatedLine(text, messages.filter((m) => m.sender.uuid !== fanUuid));
+      if (again) {
+        this.captionNudged = true;
+        return refuse(`Not sent: the caption repeats "${again.clause}", which you already sent him. Give the photo a different caption of a few words (or an emoji) and call send_photo again.`);
+      }
     }
     const history = await this.#history(messages);
     if (this.thanks) history.freeStreak = 0; // the thank-you photo for a tip or purchase always goes

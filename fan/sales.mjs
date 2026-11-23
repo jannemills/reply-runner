@@ -3,8 +3,14 @@
 const DAY_MS = 24 * 3600_000;
 // Chat review, 14 Nov 2026: free photos in a row with no paid offer between them sold nothing (28 free in 10 minutes, 0 sales).
 const FREE_STREAK_HOURS = 12;
-export const MAX_FREE_STREAK = 2;
-export const VIP_MAX_FREE_STREAK = 3; // owner, 13 Nov 2026: a VIP may get up to three sets in one reply
+// Owner, 24 Nov 2026: "you are free to send more free photos, more in the moment photos" (was 2, VIP 3).
+export const MAX_FREE_STREAK = 4;
+export const VIP_MAX_FREE_STREAK = 6;
+// Chat review, 24 Nov 2026 (2 of 26 paid offers sold; one fan got 5 locked photos in 33 minutes after asking for a free one, none bought):
+// after this many paid offers in a row that he has not bought, no new paid offer for UNBOUGHT_PAUSE_HOURS. Free photos and talk go on.
+// Supersedes the 19 Nov "no open-offer limit". A purchase resets the run.
+export const MAX_UNBOUGHT_PAID_RUN = 2;
+export const UNBOUGHT_PAUSE_HOURS = 12;
 
 const isAiRefurbished = (m) => /ai image/i.test(m.name ?? "");
 
@@ -92,8 +98,9 @@ export function pickPack(pool, h, count, nude, random, vip = false) {
 export function salesHistory(messages, fanUuid, now, rules) {
   // freeStreak: free photo messages to him since the newest paid one, within FREE_STREAK_HOURS (chat review, 14 Nov 2026).
   // lastBoughtSingleUsd: the price of the newest single paid photo he bought.
-  const h = { seen: new Set(), offeredBefore: new Set(), freePhotos: 0, paidPhotos: 0, paidPacks: 0, bought: 0, lastFreeAt: null, lastPaidAt: null, firstPaidAt: null, openPaid: 0, freeStreak: 0, lastBoughtSingleUsd: null };
+  const h = { seen: new Set(), offeredBefore: new Set(), freePhotos: 0, paidPhotos: 0, paidPacks: 0, bought: 0, lastFreeAt: null, lastPaidAt: null, firstPaidAt: null, openPaid: 0, freeStreak: 0, lastBoughtSingleUsd: null, unboughtRun: 0, lastUnboughtSingleUsd: null };
   let streakOpen = true;
+  let unboughtOpen = true; // counting his newest paid offers until the first one he bought
   for (const m of messages) {
     if (m.sender.uuid === fanUuid || !m.mediaUuids?.length) continue;
     const at = Date.parse(m.sentAt) || 0;
@@ -106,6 +113,13 @@ export function salesHistory(messages, fanUuid, now, rules) {
     if (m.pricing) {
       const cents = m.pricing?.USD?.price;
       if (oneToOne && m.purchasedAt && m.mediaUuids.length === 1 && h.lastBoughtSingleUsd == null && cents != null) h.lastBoughtSingleUsd = cents / 100;
+      if (oneToOne && unboughtOpen) {
+        if (m.purchasedAt || !recent) unboughtOpen = false;
+        else {
+          if (h.unboughtRun === 0 && m.mediaUuids.length === 1 && cents != null) h.lastUnboughtSingleUsd = cents / 100;
+          h.unboughtRun++;
+        }
+      }
       if (oneToOne) {
         h.paidPhotos++;
         if (m.mediaUuids.length > 1) h.paidPacks++; // owner, 13 Nov 2026: a paid message with several photos is a pack
@@ -165,7 +179,12 @@ export function photoRefusal(kind, h, now, priceUsd, rules, firstBuyer = false) 
     if (priceUsd > ceiling)
       return `His last single photo sold at $${h.lastBoughtSingleUsd}. Price this one at most $${ceiling}: bigger jumps did not sell. For more money offer a pack instead.`;
   }
-  // Owner, 19 Nov 2026: "we shouldn't have any open-offer limit ... if he doesn't open the previous we send new ones". No limit on unopened paid messages.
+  // Chat review, 24 Nov 2026: a price went $10 -> $12 -> $15 on offers he never bought. A single never costs more than his newest unbought single.
+  if (!isPack && h.lastUnboughtSingleUsd != null && priceUsd > h.lastUnboughtSingleUsd)
+    return `He has not bought your last single at $${h.lastUnboughtSingleUsd}. A new single costs at most that: raising the price on an unbought offer does not sell.`;
+  if ((h.unboughtRun ?? 0) >= MAX_UNBOUGHT_PAID_RUN && h.lastPaidAt && now - h.lastPaidAt < UNBOUGHT_PAUSE_HOURS * 3600_000)
+    return `He has ${h.unboughtRun} paid offers in a row that he has not bought. No new paid offer for now: talk with him, or give a free photo or an "in the moment" set, and mention the locked one only if he brings it up.`;
+  // Owner, 19 Nov 2026 (superseded 24 Nov by the unbought run above): "we shouldn't have any open-offer limit ... if he doesn't open the previous we send new ones". No limit on unopened paid messages.
   if (h.lastPaidAt && now - h.lastPaidAt < rules.paidPhotoHours * 3600_000) return `He got a paid photo in the last ${rules.paidPhotoHours} hours. No new one yet.`;
   return null;
 }
