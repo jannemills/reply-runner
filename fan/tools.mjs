@@ -99,7 +99,7 @@ export const TOOLS = [
   {
     name: "send_moment_photos",
     description:
-      "Sends him free photos from one \"in the moment\" set (a vault folder of photos from one scene and one moment) in one message, with a neutral caption. You choose how many of its photos go out (count; all of them when left out). Each set is used ONCE per fan: after this send none of its photos can ever go to him again, also the ones you did not send. read_fan_profile lists the sets still unused for him with their scene and size. Refused after four free photo messages in a row (a VIP six) without a paid offer between them (then sell a small paid single instead), and when no unused set is left for him.",
+      "Sends him ONE free photo (two at most, when he clearly asks for more) from an \"in the moment\" set (a vault folder of photos from one scene and one moment), with a neutral caption. Owner, 24 Nov 2026: free photos go one per send, never in bulk. A set he has started is continued on the next send (same scene, the next photo he has not had); no photo ever goes to him twice. read_fan_profile lists the sets with photos left for him. Refused after four free photo messages in a row (a VIP six) without a paid offer between them (then sell a small paid single instead), and when no unused set is left for him.",
     inputSchema: {
       type: "object",
       properties: {
@@ -109,7 +109,7 @@ export const TOOLS = [
           description:
             "The scene of the set, as read_fan_profile lists it (e.g. home, taxi, bathrobe, chair, bathroom). Use it when he asked for a current photo, to stay consistent with what you told him (said you are home: a home set), or to pick a set. Leave out to get the next unused set (the same scene as his last set when one is left).",
         },
-        count: { type: "integer", minimum: 1, maximum: 20, description: "How many photos of the set to send. Leave out to send the whole set. The rest of the set is gone for him either way." },
+        count: { type: "integer", minimum: 1, maximum: 2, description: "How many photos to send: 1 (default, almost always) or 2 when he clearly asks for more. The rest of the set stays for his next free photo." },
       },
       required: ["text"],
       additionalProperties: false,
@@ -212,9 +212,11 @@ const SELFIES_PER_REPLY = 2;
 const MOMENT_GAP_MS = 0;
 // Owner, 13 Nov 2026: never the same photo to the same fan twice. Everything she ever sent him is read this far back.
 const EVER_SENT_MESSAGES = 3000;
-// Sets per reply: one, and up to three for a VIP (owner, 13 Nov 2026: the top spender wants many photos at once).
-const MOMENT_SETS_PER_REPLY = 2; // owner, 24 Nov 2026: "more in the moment photos" (was 1)
-const VIP_MOMENT_SETS_PER_REPLY = 3;
+// Owner, 24 Nov 2026 (later): "free photos should be mostly only 1 per send, not bulk free photos in one send".
+// One moment message per reply (a VIP two), one photo per message by default and at most MOMENT_MAX_PER_SEND.
+const MOMENT_SETS_PER_REPLY = 1;
+const VIP_MOMENT_SETS_PER_REPLY = 2;
+const MOMENT_MAX_PER_SEND = 2;
 
 const ok = (text) => ({ text });
 const refuse = (text) => ({ text, isError: true });
@@ -336,7 +338,7 @@ export class JobTools {
           ? "Photos: the photo stock could not be read this time (a temporary error, NOT out of stock). Do not hint at a photo in this reply and do not write anything about stock in your notes; check read_fan_profile again next time."
           : `Unseen photos left for him: ${freeLeft} free, ${paidLeft} paid.` +
             (momentLeft?.length
-              ? ` Free "in the moment" sets still unused for him: ${momentLeft.length} (${momentLeft.map((s) => `${s.scene ?? "set"} ${s.uuids.length}`).join(", ")} photos; send_moment_photos, each set once per fan, free for everyone).`
+              ? ` Free "in the moment" sets with photos left for him: ${momentLeft.length} (${momentLeft.map((s) => `${s.scene ?? "set"}${s.started ? " (started)" : ""}`).join(", ")}; send_moment_photos sends ONE photo per send, free for everyone).`
               : momentLeft ? ' No free "in the moment" set left for him: every set was used for him already.' : "") +
             (paidLeft
               ? this.vip && !pool.ppv.some((p) => !history.seen.has(p.uuid))
@@ -351,7 +353,7 @@ export class JobTools {
         return this.#exclusive("One photo message per reply. Stop here.", () => this.#sendPack(args), this.photoSent);
       case "send_moment_photos":
         return this.#exclusive(
-          this.vip ? `At most ${VIP_MOMENT_SETS_PER_REPLY} sets per reply. Stop here.` : "At most two sets per reply. Stop here.",
+          this.vip ? `At most ${VIP_MOMENT_SETS_PER_REPLY} sets per reply. Stop here.` : "One free photo message from the sets per reply. Stop here.",
           () => this.#sendMomentPhotos(args),
           this.momentSets >= (this.vip ? VIP_MOMENT_SETS_PER_REPLY : MOMENT_SETS_PER_REPLY),
         );
@@ -635,7 +637,12 @@ export class JobTools {
     ]);
     const usedNames = usedMomentSets(notes);
     return named
-      .map((f, i) => ({ ...f, uuids: media[i], used: usedNames.has(f.name.trim().toLowerCase()) || media[i].some((u) => ever?.has(u)) }))
+      // Owner, 24 Nov 2026 (one free photo per send): a set is used once all of it went to him (or the note names it, sets from
+      // before this change); a set with some photos sent is "started" and is continued on the next send.
+      .map((f, i) => {
+        const sent = media[i].filter((u) => ever?.has(u)).length;
+        return { ...f, uuids: media[i], started: sent > 0, used: usedNames.has(f.name.trim().toLowerCase()) || (media[i].length > 0 && sent >= media[i].length) };
+      })
       .filter((f) => f.uuids.length);
   }
 
@@ -678,27 +685,28 @@ export class JobTools {
         return refuse(`No unused ${wanted} set is left for him. Unused scenes: ${scenes.join(", ") || "none named"}. Pick one that fits what you told him, or answer in words.`);
       }
     } else {
-      // Stay with the scene of his latest set when one is left, else the oldest unused set.
+      // Continue a set he has started; else stay with the scene of his latest set when one is left, else the oldest unused set.
       const last = sets.filter((s) => s.used && s.scene).at(-1);
-      set = (last && unused.find((s) => s.scene === last.scene)) ?? unused[0];
+      set = unused.find((s) => s.started) ?? (last && unused.find((s) => s.scene === last.scene)) ?? unused[0];
     }
     const photos = set.uuids.filter((u) => !ever.has(u));
-    let count = args.count === undefined ? photos.length : Math.min(Math.max(Math.trunc(Number(args.count)) || 1, 1), photos.length);
+    let count = Math.min(Math.max(Math.trunc(Number(args.count ?? 1)) || 1, 1), MOMENT_MAX_PER_SEND, photos.length);
     // Owner, 19 Nov 2026: the free gift after a purchase or a tip is one photo, never a whole set (a $4 unlock got 5 free photos, a tip got 4).
     if (this.thanks) count = 1;
     const uuids = photos.slice(0, count);
     if (!uuids.length) return refuse("That set has no photo left for him. Answer in words.");
     if (this.replied) await this.#wait(typingDelayMs(text));
     await api.sendPhotos(fanUuid, text, uuids);
-    // The set is used for him now, also the photos he did not get. The note keeps it beyond any chat window.
-    await api.putNotes(fanUuid, withUsedMomentSet(await api.getNotes(fanUuid), set.name)).catch(() => {});
+    // Owner, 24 Nov 2026: the set stays open for him until every photo of it went out; then the note marks it used.
+    const left = photos.length - uuids.length;
+    if (!left) await api.putNotes(fanUuid, withUsedMomentSet(await api.getNotes(fanUuid), set.name)).catch(() => {});
     await this.#noteSent(uuids);
     const newest = (await api.fetchMessages(fanUuid).catch(() => []))[0];
     if (newest && newest.sender.uuid !== fanUuid) this.sentUuid = newest.uuid;
     this.replied = true;
     this.momentSent = true;
     this.momentSets++;
-    return ok(`Sent ${uuids.length} photos from the ${set.scene ?? "photo"} set. That set is used for him now.`);
+    return ok(`Sent ${uuids.length} ${uuids.length === 1 ? "photo" : "photos"} from the ${set.scene ?? "photo"} set. ${left ? `${left} more of that set ${left === 1 ? "is" : "are"} left for his next free photo.` : "That set is finished for him now."}`);
   }
 
   /**
