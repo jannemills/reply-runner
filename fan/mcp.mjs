@@ -38,7 +38,7 @@ export async function startToolServer(jobTools, tools) {
       if (name === "send_reply" || result.isError) console.log(`tool ${name} ${result.isError ? "refused" : "ok"}: ${result.text.slice(0, 60)}`);
       return result;
     } catch (err) {
-      console.error(`tool ${name} failed${err?.status ? `: ${err.status}` : ""}`);
+      console.error(`tool ${name} failed${err?.status ? `: ${err.status}` : ""}${/\(([^)]*)\)$/.exec(err?.message ?? "")?.[0] ?? ""}`);
       return { text: "That did not work. Stop here.", isError: true };
     }
   };

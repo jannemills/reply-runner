@@ -26,7 +26,12 @@ export function createApi(token, base = process.env.FAN_API_URL || "https://api.
       if (Date.now() - started + wait > 35_000) break;
       await new Promise((r) => setTimeout(r, wait));
     }
-    if (!res.ok) throw new FanError(res.status, `${init.method ?? "GET"} ${path.split("?")[0]} failed: ${res.status}`);
+    if (!res.ok) {
+      // 23 Nov 2026: a 400 on send_reply left a top spender unanswered with no clue why; log Fanvue's own error text (no fan data, 90 chars).
+      let why = "";
+      if (res.status === 400) why = ` (${String((await res.clone().json().catch(() => ({}))).message ?? "").replace(/[0-9a-f]{8}-[0-9a-f-]{27}/gi, "id").slice(0, 90)})`;
+      throw new FanError(res.status, `${init.method ?? "GET"} ${path.split("?")[0]} failed: ${res.status}${why}`);
+    }
     return res;
   }
 
