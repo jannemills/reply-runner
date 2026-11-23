@@ -43,6 +43,13 @@ export function poolForFan(pool, fanUuid) {
   return { ...pool, free: keep(pool.free), ppv: keep(pool.ppv), preview: keep(pool.preview), vipExtra: keep(pool.vipExtra) };
 }
 
+/** Media of every vault folder named "free <something>" (owner, 24 Nov 2026), newest folder first. Never throws. */
+export async function freshFolderMedia(api) {
+  const folders = await Promise.resolve().then(() => api.listFolders()).catch(() => []);
+  const names = (folders ?? []).filter((f) => /^free\s+\S/i.test(String(f.name ?? "").trim())).sort((a, b) => Date.parse(b.createdAt ?? "") - Date.parse(a.createdAt ?? ""));
+  return Promise.all(names.map((f) => Promise.resolve().then(() => api.listFolderMedia(f.name)).catch(() => [])));
+}
+
 /** The photos the sell phase may use: ready images in the vault folders "free" and "ppv", minus the "AI Images" folder. */
 export async function buildPool(api) {
   const [free, ppv, preview, ai, posted, scheduled, ...warmUp] = await Promise.all([
@@ -57,10 +64,14 @@ export async function buildPool(api) {
     ...VIP_EXTRA_FOLDERS.map((f) => api.listFolderMedia(f).catch(() => [])),
   ]);
   const skip = new Set([...ai.map((m) => m.uuid), ...posted, ...scheduled]);
+  // Owner, 24 Nov 2026: a vault folder named "free <date>" (e.g. "free 23.11") holds new, fresh photos for free sends; they go out
+  // before the older "free" folder (pickPhoto prefers `fresh`). Optional: a missing or unreadable folder changes nothing.
+  const fresh = poolFrom((await freshFolderMedia(api)).flat(), skip).map((p) => ({ ...p, fresh: true }));
+  const freshIds = new Set(fresh.map((p) => p.uuid));
   const ppvPool = poolFrom(ppv, skip);
   const inPpv = new Set(ppvPool.map((p) => p.uuid));
   const vipExtra = [...new Map(poolFrom([...free, ...warmUp.flat()], skip).filter((p) => !inPpv.has(p.uuid)).map((p) => [p.uuid, p])).values()];
-  return { free: poolFrom(free, skip), ppv: ppvPool, preview: poolFrom(preview, skip), vipExtra };
+  return { free: [...fresh, ...poolFrom(free, skip).filter((p) => !freshIds.has(p.uuid))], ppv: ppvPool, preview: poolFrom(preview, skip), vipExtra };
 }
 
 /**
@@ -220,8 +231,11 @@ export function notBuyingRefusal(insights, h, now, rules, { vip, noSale }) {
 export function pickPhoto(pool, kind, h, nude, random, vip = false) {
   const candidates =
     kind === "paid" ? paidCandidates(pool, h, vip) : pool.free.filter((p) => !h.seen.has(p.uuid) && !h.offeredBefore.has(p.uuid));
-  const preferred = nude ? candidates.filter((p) => p.nude) : candidates;
-  const from = preferred.length ? preferred : candidates;
+  // Owner, 24 Nov 2026: the new "free <date>" folder goes first; the older "free" photos only when it has none left for him.
+  const fresh = candidates.filter((p) => p.fresh);
+  const pool0 = kind !== "paid" && fresh.length ? fresh : candidates;
+  const preferred = nude ? pool0.filter((p) => p.nude) : pool0;
+  const from = preferred.length ? preferred : pool0;
   return from.length ? from[Math.floor(random() * from.length)].uuid : null;
 }
 

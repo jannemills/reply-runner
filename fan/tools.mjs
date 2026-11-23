@@ -67,7 +67,7 @@ export const TOOLS = [
   {
     name: "send_photo",
     description:
-      "Send him one photo with a one-line caption, after your text reply if you send one. The photo is picked for you, unseen by him. kind free, or kind paid with price_usd. It may be refused; the result says why.",
+      "Send him one photo with a one-line caption, after your text reply if you send one. The photo is picked for you, unseen by him; free photos come from the newest \"free <date>\" folder first, then the older free photos. kind free, or kind paid with price_usd. It may be refused; the result says why.",
     inputSchema: {
       type: "object",
       properties: {
