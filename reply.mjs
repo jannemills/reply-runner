@@ -34,6 +34,8 @@ if (jobRes.status === 404) {
   if (!jobRes.ok) throw new Error(`fetching the job failed: ${jobRes.status}`);
   const job = await jobRes.json();
   const { fanUuid } = job;
+  // 24 Nov 2026: what queued this job and what kind it is, never who (this repo is public). Slow replies and send failures can be traced from it.
+  console.log(`trigger: ${job.via ?? "unknown"}; research: ${job.research ? "yes" : "no"}; fan id format: ${/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(String(fanUuid)) ? "uuid" : "not a uuid"}`);
   const api = createApi(job.token);
   try {
     await reply();
