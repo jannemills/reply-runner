@@ -129,8 +129,10 @@ if (jobRes.status === 404) {
     // is reached too, after the shorter silentQuietHours, so the welcome automation is not the last he hears from her.
     const quietMs = newest ? Date.now() - Date.parse(newest.sentAt) : 0;
     const quietNeededHours = hasWritten ? job.reengage?.quietHours : job.reengage?.silentQuietHours;
+    // A joiner opener (job.manual, he never wrote) goes only into a chat where she has sent nothing personal yet.
+    const joinerTaken = !!job.manual && !hasWritten && messages.some((m) => m.sender.uuid !== fanUuid && !String(m.type ?? "").startsWith("AUTOMATED") && m.type !== "BROADCAST");
     const reengage =
-      !wrote && !thanks && !reaction && !engaged && !!job.reengage && !!newest && newest.sender.uuid !== fanUuid &&
+      !wrote && !thanks && !reaction && !engaged && !!job.reengage && !!newest && newest.sender.uuid !== fanUuid && !joinerTaken &&
       quietNeededHours > 0 && quietMs >= quietNeededHours * 3600_000;
     const followUp = !thanks && !reaction && !engaged && !reengage && !!job.followUpAfter && stillNewest(messages, job.followUpAfter);
     if (!wrote && !followUp && !thanks && !reaction && !engaged && !reengage) return void (await post("", { done: true, skipped: "answered" })); // someone answered him by hand
