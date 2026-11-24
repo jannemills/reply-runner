@@ -240,6 +240,13 @@ const ok = (text) => ({ text });
 const refuse = (text) => ({ text, isError: true });
 
 /**
+ * Review, 24 Nov 2026 (evening): "evo nesto malo smelije" and "ovu pazi" went out with no photo attached. A line that announces a picture
+ * ("evo ...", "ovu pazi", "look at this", "here is one") must not be sent as text when no photo went out in this reply.
+ */
+export const announcesPhoto = (text) =>
+  /\bevo\b[^.!?\n]{0,24}\b(nesto|nešto|slik\w*|foto\w*|jednu|ovu|ovo|ovaj|malo\s+smel\w*)|\bovu\s+(pazi|vidi|gledaj)|\b(pazi|vidi|gledaj)\s+ovu\b|\b(look at|check out)\s+(this|that)\b|\bhere(?:'s| is)\s+(a|one|my|something)\s+(pic|photo|picture|selfie|one)\b|\bhere you go\b|\b(sending|sent)\s+you\s+(a|one|something)\b|(?:^|[^\p{L}])(?:šaljem|saljem|poslala sam)\s+ti\b/iu.test(String(text ?? ""));
+
+/**
  * He asks to see her: a photo, her face or body, "show me", "where are your photos", "I'll give you a gift for it".
  * Owner, 6 Nov 2026: a top spender asked for photos 8 times in a day and got only teasing; the owner then sold him $20 and
  * $25 photos within minutes. Serbian in Latin and Cyrillic, and English.
@@ -579,6 +586,15 @@ export class JobTools {
           );
         }
       }
+    }
+
+    // Review, 24 Nov 2026 (evening): a line that announces a photo while none has gone out. Refused twice at most, so he is never left unanswered.
+    if (!this.photoSent && !this.thanks && !this.research && (this.announceRefusals ??= 0) < 2 && announcesPhoto(text)) {
+      this.announceRefusals += 1;
+      return refuse(
+        "Not sent: your line announces a photo (\"evo ...\", \"look at this\") but no photo has gone out. Either send the photo first (send_photo, send_moment_photos, send_selfie or send_ppv_pack, " +
+          "with your words as its caption) and then send_reply only if you still need a line, or rewrite this line without announcing or promising any picture. If the photo is refused, answer in words only.",
+      );
     }
 
     // Never repeat a line she already sent him, however long ago (owner, 14 Nov 2026: the same riddle twice, he noticed).

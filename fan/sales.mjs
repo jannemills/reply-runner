@@ -11,6 +11,8 @@ export const VIP_MAX_FREE_STREAK = 6;
 // Supersedes the 19 Nov "no open-offer limit". A purchase resets the run.
 export const MAX_UNBOUGHT_PAID_RUN = 2;
 export const UNBOUGHT_PAUSE_HOURS = 12;
+// Review, 24 Nov 2026 (evening): a second paid offer within minutes of an unbought first one sold nothing. Minimum gap after an unbought paid offer.
+export const UNBOUGHT_GAP_MINUTES = 20;
 
 const isAiRefurbished = (m) => /ai image/i.test(m.name ?? "");
 
@@ -201,6 +203,10 @@ export function photoRefusal(kind, h, now, priceUsd, rules, firstBuyer = false) 
   // Chat review, 24 Nov 2026: a price went $10 -> $12 -> $15 on offers he never bought. A single never costs more than his newest unbought single.
   if (!isPack && h.lastUnboughtSingleUsd != null && priceUsd > h.lastUnboughtSingleUsd)
     return `He has not bought your last single at $${h.lastUnboughtSingleUsd}. A new single costs at most that: raising the price on an unbought offer does not sell.`;
+  // Review, 24 Nov 2026 (evening): $5 then $4 six minutes apart, $4 then $3 in three, $8 then $7 in four, none bought. A paid offer he has not bought
+  // blocks the next one for UNBOUGHT_GAP_MINUTES: he has to look at it first.
+  if ((h.unboughtRun ?? 0) >= 1 && h.lastPaidAt && now - h.lastPaidAt < UNBOUGHT_GAP_MINUTES * 60_000)
+    return `Your last paid offer went out ${Math.max(1, Math.round((now - h.lastPaidAt) / 60_000))} min ago and he has not bought it. No second paid offer within ${UNBOUGHT_GAP_MINUTES} minutes: let him look at it. Answer him in words, or a free photo if the rules allow, and mention the locked one only if he brings it up.`;
   if ((h.unboughtRun ?? 0) >= MAX_UNBOUGHT_PAID_RUN && h.lastPaidAt && now - h.lastPaidAt < UNBOUGHT_PAUSE_HOURS * 3600_000)
     return `He has ${h.unboughtRun} paid offers in a row that he has not bought. No new paid offer for now: talk with him, or give a free photo or an "in the moment" set, and mention the locked one only if he brings it up.`;
   // Owner, 19 Nov 2026 (superseded 24 Nov by the unbought run above): "we shouldn't have any open-offer limit ... if he doesn't open the previous we send new ones". No limit on unopened paid messages.
