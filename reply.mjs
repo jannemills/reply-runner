@@ -16,6 +16,10 @@ const OWNER_ACTIVE_MS = 8 * 60_000; // the bot keeps out of a chat this long aft
 const PRELOAD_MESSAGES = 20;
 const MAX_WINBACK = 3;
 const MAX_UNANSWERED_WINBACK = MAX_WINBACK; // owner, 22 Nov 2026: a win-back streak may reach 3 unanswered messages
+// Review, 24 Nov 2026: her opener and Fanvue's re-subscribe automation ("vratio si se") went out 30 s apart: he came online to
+// re-subscribe. An opener first waits this long and is dropped if an automation or anything else reached him meanwhile or lately.
+const OPENER_SETTLE_MS = Number(process.env.OPENER_SETTLE_MS ?? 75_000);
+const AUTOMATION_QUIET_MS = 10 * 60_000;
 const MAX_UNANSWERED_RUNS = 2;      // no follow-up or check-in once she already wrote this many times without an answer
 
 const jobUrl = `${WORKER_URL}/job/${JOB_ID}`;
@@ -134,6 +138,16 @@ if (jobRes.status === 404) {
     const ownerAsked = !!job.reengage && job.reengage.quietHours < 0.1;
     if ((followUp || reengage) && !ownerAsked && unansweredRuns(messages, fanUuid) >= (reengage && quietMs >= 2 * 86_400_000 ? MAX_UNANSWERED_WINBACK : MAX_UNANSWERED_RUNS))
       return void (await post("", { done: true, skipped: "answered" }));
+
+    if (reengage || (!!engaged && !hasWritten)) {
+      const recentAutomation = (list) =>
+        list.some((m) => m.sender.uuid !== fanUuid && String(m.type ?? "").startsWith("AUTOMATED") && Date.now() - Date.parse(m.sentAt) < AUTOMATION_QUIET_MS);
+      if (!recentAutomation(messages)) {
+        await new Promise((r) => setTimeout(r, OPENER_SETTLE_MS));
+        messages = await api.fetchMessages(fanUuid);
+      }
+      if (recentAutomation(messages) || messages[0]?.uuid !== newest?.uuid) return void (await post("", { done: true, skipped: "answered" }));
+    }
 
     const verdictP = runFilter({
       ...job.filter,

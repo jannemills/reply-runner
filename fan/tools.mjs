@@ -9,6 +9,9 @@ import {
   mergeNotes,
   newFanMessages,
   newestPersonal,
+  paymentHold,
+  buyerNudgeDue,
+  withBuyerNudge,
   repeatedLine,
   splitNotes,
   splitReply,
@@ -18,10 +21,11 @@ import {
   withReplyCount,
   withStopLine,
   withUsedMomentSet,
+  withPaymentHold,
 } from "./chat.mjs";
 import { withTypo } from "./typo.mjs";
 import { MAX_VOICE_WORDS, speak, spokenText, voiceName, wordCount } from "./voice.mjs";
-import { buildPool, poolForFan, isFirstBuyer, freeTalkRun, MAX_FREE_STREAK, VIP_MAX_FREE_STREAK, notBuyingRefusal, paidCandidates, photoRefusal, priceAnchorUsd, pickPack, pickPhoto, profileText, salesHistory } from "./sales.mjs";
+import { buildPool, poolForFan, isFirstBuyer, freeTalkRun, sincePaidRun, MAX_FREE_STREAK, VIP_MAX_FREE_STREAK, notBuyingRefusal, paidCandidates, photoRefusal, priceAnchorUsd, pickPack, pickPhoto, profileText, salesHistory } from "./sales.mjs";
 
 const none = { type: "object", properties: {}, additionalProperties: false };
 
@@ -150,6 +154,20 @@ export const TOOLS = [
       type: "object",
       properties: { reason: { type: "string", description: "A few words, no chat text." } },
       required: ["reason"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "payment_trouble",
+    description:
+      "Call cannot_pay when he says he cannot pay right now (card declined or not activated, no money until payday, a wallet that fails). For 24 hours, or until he buys, no new paid offer goes to him and at most one free photo. Call works_again when he says his payment works now; then one small easy offer may follow.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        state: { type: "string", enum: ["cannot_pay", "works_again"] },
+        reason: { type: "string", description: "A few words such as \"card not activated\" or \"money tomorrow\". No card numbers or other payment data." },
+      },
+      required: ["state"],
       additionalProperties: false,
     },
   },
@@ -345,7 +363,11 @@ export class JobTools {
                 ? " His usual paid photos are used up; his paid offers now come from softer lingerie and warm-up photos, so price them a little below his usual (a pack of 3 to 5 around $12 to $25) and keep selling."
                 : ""
               : ` OUT OF PAID PHOTOS for him: he has had every paid photo. Follow "Out of paid photos" in your instructions: call ready_for_offer with reason "out of paid photos" now${freeLeft ? ", and if he asks for photos give him a free one with send_photo kind free" : ""}; never dodge his request and never say something is waiting for him.`);
-        return ok(`${profileText(insights, history, this.rules)}\n${photos}`);
+        const hold = paymentHold(await this.api.getNotes(this.fanUuid).catch(() => ""), this.now());
+        const holdText = hold && !(history.lastBoughtAt && history.lastBoughtAt > hold.setAt)
+          ? `\nPayment hold: he said he cannot pay right now (until ${new Date(hold.until).toISOString().slice(0, 16)} UTC, or until he says it works or buys). No new paid offer; help him and stay warm.`
+          : "";
+        return ok(`${profileText(insights, history, this.rules)}\n${photos}${holdText}`);
       }
       case "send_photo":
         return this.#exclusive("One photo per reply. Stop here.", () => this.#sendPhoto(args), this.photoSent);
@@ -365,6 +387,14 @@ export class JobTools {
         if (this.noSale) return refuse("He is sold nothing after a refund or chargeback. Keep the chat warm and friendly.");
         this.alerts.push({ kind: "offer", reason: String(args.reason ?? "") });
         return ok("Noted. Keep the chat going as normal and say nothing about a photo.");
+      case "payment_trouble": {
+        const notes = await this.api.getNotes(this.fanUuid);
+        const cannot = args.state === "cannot_pay";
+        await this.api.putNotes(this.fanUuid, withPaymentHold(notes, cannot ? String(args.reason ?? "cannot pay right now") : null, this.now()));
+        return ok(cannot
+          ? "Noted. No new paid offer to him for now and at most one free photo. Help him with the one concrete step that fits, stay warm, and when he says it works, call payment_trouble with works_again."
+          : "Noted. His payment works again: one small, easy offer may go out now.");
+      }
       case "mark_english":
         await this.api.addToList(this.usaListUuid, [this.fanUuid]);
         return ok("Marked.");
@@ -522,6 +552,30 @@ export class JobTools {
               "Turn his own last words into the caption of ONE small paid single (send_photo kind paid, small and easy, priced for him) and send it with this reply, then keep the line short. " +
               "If he said his card or payment does not work, give one concrete help (add or change the card in Fanvue settings, try the app) and do not send a new offer; keep the text short and do not continue explicit talk for free. " +
               "If he has said no to a small unlock, send_reply again with one short plain line.",
+          );
+        }
+      }
+    }
+
+    // Review, 24 Nov 2026 (12 hours): long warm chats with buyers got no priced step for 35-80 messages. Once, when about
+    // buyerTalkMaxReplies of her messages went out since her newest paid one and a paid offer is allowed now, remind the model.
+    if (!this.photoSent && !this.followUp && !this.thanks && !this.noSale && !this.research && !this.vip && !this.buyerTalkNudged) {
+      const limit = this.rules.buyerTalkMaxReplies ?? 20;
+      const chat = await this.readChat(SALES_HISTORY_MESSAGES).catch(() => null);
+      const notesNow = chat ? await api.getNotes(fanUuid).catch(() => null) : null;
+      if (chat && notesNow != null && sincePaidRun(chat, fanUuid) >= limit && buyerNudgeDue(notesNow, this.now())) {
+        const insights = await api.getFanInsights(fanUuid).catch(() => null);
+        const history = await this.#history(chat);
+        history.paymentHold = paymentHold(notesNow, this.now());
+        history.priceAnchorUsd = priceAnchorUsd(insights);
+        const spentBefore = (insights?.spending?.total?.netTotal ?? 0) > 0 || history.bought > 0;
+        if (spentBefore && !photoRefusal("pack", history, this.now(), this.rules.minPriceUsd, this.rules, false)) {
+          this.buyerTalkNudged = true;
+          await api.putNotes(fanUuid, withBuyerNudge(notesNow, this.now())).catch(() => {});
+          return refuse(
+            `Not sent yet: he has paid before and you have written ${limit}+ messages to him since your last priced offer. If he is warm (a compliment, flirting, interest in you), ` +
+              "call send_reply again with your line, then one light priced step right after it: send_photo kind paid or send_ppv_pack, priced for him, with a personal caption (for a past tipper the tip line fits too). " +
+              "If he is sad, worried, tired or saying goodnight, just call send_reply again with your line and stay warm.",
           );
         }
       }
@@ -818,6 +872,7 @@ export class JobTools {
       return refuse("The chat changed. Send nothing more. Stop here.");
     }
     const history = await this.#history(messages);
+    history.paymentHold = paymentHold(await api.getNotes(fanUuid), this.now());
     const firstBuyer = isFirstBuyer(await api.getFanInsights(fanUuid).catch(() => null), history, this.vip);
     // Same waiting time as a single paid photo (no open-offer limit since 19 Nov 2026); never a pack as his first offer.
     const refusal = photoRefusal("pack", history, this.now(), rules.minPriceUsd, rules, firstBuyer);
@@ -866,6 +921,7 @@ export class JobTools {
     }
     const history = await this.#history(messages);
     if (this.thanks) history.freeStreak = 0; // the thank-you photo for a tip or purchase always goes
+    history.paymentHold = this.thanks ? null : paymentHold(await api.getNotes(fanUuid), this.now()); // a tip or purchase means he can pay
     history.freeStreakLimit = this.vip ? VIP_MAX_FREE_STREAK : MAX_FREE_STREAK;
     const insights = await api.getFanInsights(fanUuid).catch(() => null);
     history.priceAnchorUsd = priceAnchorUsd(insights);

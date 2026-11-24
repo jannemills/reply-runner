@@ -12,6 +12,8 @@ const NEAR = {
 export function withTypo(text, rand = Math.random, chance = TYPO_CHANCE) {
   if (typeof text !== "string" || text.length < 18 || rand() >= chance) return text;
   if (/[$€£0-9@#]|https?:|www\.|\.com|\.bio/i.test(text)) return text;
+  // Review, 24 Nov 2026: typos landed in how-to-pay help ("the next one you umlock"). Never in a line about paying or unlocking.
+  if (/fanvue|unlock|settings|card|payment|pay\b|bank|kartic|podesav|otklju|otkljuc|bankomat|plati|placa|uplat|aplikacij/i.test(text)) return text;
   const words = [...text.matchAll(/\p{L}{4,}/gu)];
   if (!words.length) return text;
   const w = words[Math.floor(rand() * words.length)];

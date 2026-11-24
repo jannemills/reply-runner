@@ -109,7 +109,7 @@ export function pickPack(pool, h, count, nude, random, vip = false) {
 export function salesHistory(messages, fanUuid, now, rules) {
   // freeStreak: free photo messages to him since the newest paid one, within FREE_STREAK_HOURS (chat review, 14 Nov 2026).
   // lastBoughtSingleUsd: the price of the newest single paid photo he bought.
-  const h = { seen: new Set(), offeredBefore: new Set(), freePhotos: 0, paidPhotos: 0, paidPacks: 0, bought: 0, lastFreeAt: null, lastPaidAt: null, firstPaidAt: null, openPaid: 0, freeStreak: 0, lastBoughtSingleUsd: null, unboughtRun: 0, lastUnboughtSingleUsd: null };
+  const h = { seen: new Set(), offeredBefore: new Set(), freePhotos: 0, paidPhotos: 0, paidPacks: 0, bought: 0, lastFreeAt: null, lastPaidAt: null, firstPaidAt: null, openPaid: 0, freeStreak: 0, lastBoughtSingleUsd: null, unboughtRun: 0, lastUnboughtSingleUsd: null, lastBoughtAt: null, recentSeen: new Set() };
   let streakOpen = true;
   let unboughtOpen = true; // counting his newest paid offers until the first one he bought
   for (const m of messages) {
@@ -117,6 +117,7 @@ export function salesHistory(messages, fanUuid, now, rules) {
     const at = Date.parse(m.sentAt) || 0;
     const recent = now - at < rules.openPpvDays * DAY_MS;
     const oneToOne = m.type === "SINGLE_RECIPIENT";
+    if (now - at < FREE_STREAK_HOURS * 3600_000) m.mediaUuids.forEach((u) => h.recentSeen.add(u));
     if (oneToOne && streakOpen) {
       if (m.pricing || now - at > FREE_STREAK_HOURS * 3600_000) streakOpen = false;
       else h.freeStreak++;
@@ -139,6 +140,7 @@ export function salesHistory(messages, fanUuid, now, rules) {
       }
       if (m.purchasedAt) {
         h.bought++;
+        h.lastBoughtAt = Math.max(h.lastBoughtAt ?? 0, Date.parse(m.purchasedAt) || at);
         m.mediaUuids.forEach((u) => h.seen.add(u));
       } else {
         if (oneToOne && recent) h.openPaid++;
@@ -168,6 +170,12 @@ export function priceAnchorUsd(insights) {
 
 /** Why this photo may not go out now, or null when it may. */
 export function photoRefusal(kind, h, now, priceUsd, rules, firstBuyer = false) {
+  // Review, 24 Nov 2026 (12 hours): offers kept going to fans who had said they could not pay. A purchase after the hold ends it.
+  const hold = h.paymentHold && !(h.lastBoughtAt && h.lastBoughtAt > h.paymentHold.setAt) ? h.paymentHold : null;
+  if (hold && kind !== "free")
+    return "He told you he cannot pay right now, so no new paid offer: help him with the one concrete step that fits, keep it warm and short, and wait. When he says it works again, call payment_trouble with works_again, then make one small easy offer.";
+  if (hold && kind === "free" && h.lastFreeAt && h.lastFreeAt > hold.setAt)
+    return "He told you he cannot pay right now and already got a free photo since then. No more photos for now: keep the chat warm in words.";
   // Owner, 10 Nov 2026: a fan who never paid gets a few free photos, then a small first unlock instead of more free ones.
   // Owner, 17 Nov 2026: no fixed price or format for the first unlock any more; the model decides it per fan (small and easy).
   if (firstBuyer && kind === "free" && rules.freeBeforeFirstBuy != null && h.freePhotos >= rules.freeBeforeFirstBuy)
@@ -227,10 +235,26 @@ export function notBuyingRefusal(insights, h, now, rules, { vip, noSale }) {
   return null;
 }
 
+// Review, 24 Nov 2026: three near-identical car selfies (one shoot, uploaded the same minute as three files) went to one fan in
+// 33 minutes, and he said "you just sent me this one". Photos uploaded within this long of one he got lately count as the same scene.
+export const SAME_SCENE_MS = 3 * 60_000;
+
+/** The candidates not from the same upload batch as a photo he got in the last hours; all of them if none is left. */
+export function apartFromRecent(candidates, pool, h) {
+  const byId = new Map([...(pool.free ?? []), ...(pool.ppv ?? []), ...(pool.preview ?? []), ...(pool.vipExtra ?? [])].map((p) => [p.uuid, p.createdAt]));
+  const times = [...(h.recentSeen ?? [])].map((u) => byId.get(u)).filter(Boolean);
+  if (!times.length) return candidates;
+  const apart = candidates.filter((p) => !p.createdAt || times.every((t) => Math.abs(t - p.createdAt) > SAME_SCENE_MS));
+  return apart.length ? apart : candidates;
+}
+
 /** A random photo he has not seen. A paid photo he never opened may be offered again as a paid one. */
 export function pickPhoto(pool, kind, h, nude, random, vip = false) {
-  const candidates =
-    kind === "paid" ? paidCandidates(pool, h, vip) : pool.free.filter((p) => !h.seen.has(p.uuid) && !h.offeredBefore.has(p.uuid));
+  const candidates = apartFromRecent(
+    kind === "paid" ? paidCandidates(pool, h, vip) : pool.free.filter((p) => !h.seen.has(p.uuid) && !h.offeredBefore.has(p.uuid)),
+    pool,
+    h,
+  );
   // Owner, 24 Nov 2026: the new "free <date>" folder goes first; the older "free" photos only when it has none left for him.
   const fresh = candidates.filter((p) => p.fresh);
   const pool0 = kind !== "paid" && fresh.length ? fresh : candidates;
@@ -275,6 +299,20 @@ export function freeTalkRun(messagesNewestFirst, fanUuid) {
   for (const m of messagesNewestFirst) {
     if (m.sender.uuid === fanUuid || m.type !== "SINGLE_RECIPIENT") continue;
     if (m.mediaUuids?.length) break;
+    n++;
+  }
+  return n;
+}
+
+/**
+ * Review, 24 Nov 2026 (12 hours): a past tipper chatted about 80 messages and a spender about 35 with no priced offer. Counts her
+ * one-to-one messages (text and free photos) since her newest paid message, newest first in; the whole window if there is none.
+ */
+export function sincePaidRun(messagesNewestFirst, fanUuid) {
+  let n = 0;
+  for (const m of messagesNewestFirst) {
+    if (m.sender.uuid === fanUuid || m.type !== "SINGLE_RECIPIENT") continue;
+    if (m.pricing) break;
     n++;
   }
   return n;

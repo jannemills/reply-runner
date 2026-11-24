@@ -28,8 +28,10 @@ export const freePhotoSince = (newestFirst, fanUuid, at) =>
 
 // A tip shows as [tip] so Claude sees it even when he typed nothing with it.
 // Chat review, 14 Nov 2026: a fan's photo with a caption showed only the caption, so the bot answered his selfie with "i wanna see you".
+// Review, 24 Nov 2026: a fan's two videos showed as "[slika]" and were ignored; a video is named as one.
+const mediaTag = (m) => (m.mediaType === "video" ? "[video]" : "[slika]");
 const messageText = (m) =>
-  m.type === "TIP" ? (m.text ? `${m.text} [tip]` : "[tip]") : m.hasMedia ? (m.text ? `${m.text} [slika]` : "[slika]") : m.gif ? `${m.text ? `${m.text} ` : ""}[GIF: ${m.gif.title ?? "animated reaction"}]` : (m.text ?? "");
+  m.type === "TIP" ? (m.text ? `${m.text} [tip]` : "[tip]") : m.hasMedia ? (m.text ? `${m.text} ${mediaTag(m)}` : mediaTag(m)) : m.gif ? `${m.text ? `${m.text} ` : ""}[GIF: ${m.gif.title ?? "animated reaction"}]` : (m.text ?? "");
 
 /** Her line, with what she attached, so Claude knows a photo or paid photo went out even when it had a caption. */
 function ownLine(m, now) {
@@ -283,5 +285,43 @@ export function withUsedMomentSet(notes, name) {
   used.add(momentKey(name));
   const lines = splitNotes(notes).own.split("\n").filter((l) => l && !l.startsWith(MOMENT_LINE));
   lines.push(`${MOMENT_LINE} ${[...used].join(" | ")}`);
+  return withOwn(notes, lines.join("\n"));
+}
+
+// Review of 24 Nov 2026 (12 hours): four fans said their card failed, it was not activated or they had no money until tomorrow, and
+// they still got new paid offers and up to five free photos in 50 minutes; 4 of the 11 unbought offers went to them. The model calls
+// payment_trouble when he says he cannot pay right now; until he says it works again, buys, or PAY_HOLD_MS passes, no new paid offer
+// and at most one free photo go to him. Kept in your part of his note, with no payment data.
+const PAY_HOLD_LINE = "Payment hold:";
+export const PAY_HOLD_MS = 24 * 3600_000;
+
+/** The active payment hold: { setAt, until } in ms, or null. */
+export function paymentHold(notes, now = Date.now()) {
+  const line = splitNotes(notes).own.split("\n").find((l) => l.startsWith(PAY_HOLD_LINE));
+  if (!line) return null;
+  const setAt = Number(/\[t=(\d+)\]/.exec(line)?.[1]);
+  const until = Number(/\[until=(\d+)\]/.exec(line)?.[1]);
+  return setAt && until && now < until ? { setAt, until } : null;
+}
+
+/** The note with a new payment hold (reason in a few words, never payment data), or with the hold removed when reason is null. */
+export function withPaymentHold(notes, reason, nowMs = Date.now()) {
+  const lines = splitNotes(notes).own.split("\n").filter((l) => l && !l.startsWith(PAY_HOLD_LINE));
+  if (reason != null) lines.push(`${PAY_HOLD_LINE} ${String(reason).replace(/[\n[\]]/g, " ").slice(0, 60)} [t=${nowMs}] [until=${nowMs + PAY_HOLD_MS}]`);
+  return withOwn(notes, lines.join("\n"));
+}
+
+// The buyer reminder (review, 24 Nov 2026) is given at most once per BUYER_NUDGE_GAP_MS per fan, so a fan who is sad or tired is
+// not reminded on every reply. Kept in your part of his note.
+const NUDGE_LINE = "Buyer offer reminder:";
+export const BUYER_NUDGE_GAP_MS = 45 * 60_000;
+export const buyerNudgeDue = (notes, now = Date.now()) => {
+  const line = splitNotes(notes).own.split("\n").find((l) => l.startsWith(NUDGE_LINE));
+  const at = Number(/\[t=(\d+)\]/.exec(line ?? "")?.[1]);
+  return !at || now - at >= BUYER_NUDGE_GAP_MS;
+};
+export function withBuyerNudge(notes, nowMs = Date.now()) {
+  const lines = splitNotes(notes).own.split("\n").filter((l) => l && !l.startsWith(NUDGE_LINE));
+  lines.push(`${NUDGE_LINE} [t=${nowMs}]`);
   return withOwn(notes, lines.join("\n"));
 }
