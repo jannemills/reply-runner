@@ -122,6 +122,19 @@ if (jobRes.status === 404) {
     // answered instead). Owner, 10 Nov 2026: "the on-like should always trigger", so no 30-minute gap after her own
     // message any more. In a chat where he never wrote, no photo.
     const engaged = !wrote && !thanks && !reaction && job.engagement ? job.engagement.kind : null;
+    // Owner, 25 Nov 2026: a like or comment gets a fixed "🤍" 20 s after it (the Worker sets sendAt), with no model run and no filter.
+    if (engaged) {
+      const gate = await post("/may-send", {}).then((r) => (r.ok ? r.json() : { ok: false })).catch(() => ({ ok: false }));
+      if (!gate.ok) return void (await post("", { done: true, skipped: "answered" }));
+      const hold = job.sendAt ? Math.min(job.sendAt - Date.now(), 60_000) : 0;
+      if (hold > 0) await new Promise((r) => setTimeout(r, hold));
+      // He wrote or someone answered by hand while we waited: his message is answered instead, no heart.
+      const latest = await api.fetchMessages(fanUuid);
+      if (needsReply(latest, fanUuid) || latest[0]?.uuid !== newest?.uuid) return void (await post("", { done: true, skipped: "answered" }));
+      await api.sendText(fanUuid, "🤍");
+      const sent = (await api.fetchMessages(fanUuid).catch(() => []))[0];
+      return void (await post("", { done: true, followUp: true, replied: true, sentUuid: sent && sent.sender.uuid !== fanUuid ? sent.uuid : undefined }));
+    }
     const hasWritten = messages.some((m) => m.sender.uuid === fanUuid);
     const comment = engaged === "comment" ? await api.postComment(job.engagement.postUuid, job.engagement.commentId, fanUuid).catch(() => null) : null;
     // He came back online: one easy message when her newest message of any kind (mass messages and automations too)
