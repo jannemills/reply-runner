@@ -370,9 +370,15 @@ export class JobTools {
                 ? " His usual paid photos are used up; his paid offers now come from softer lingerie and warm-up photos, so price them a little below his usual (a pack of 3 to 5 around $12 to $25) and keep selling."
                 : ""
               : ` OUT OF PAID PHOTOS for him: he has had every paid photo. Follow "Out of paid photos" in your instructions: call ready_for_offer with reason "out of paid photos" now${freeLeft ? ", and if he asks for photos give him a free one with send_photo kind free" : ""}; never dodge his request and never say something is waiting for him.`);
-        const hold = paymentHold(await this.api.getNotes(this.fanUuid).catch(() => ""), this.now());
+        const notesText = await this.api.getNotes(this.fanUuid).catch(() => "");
+        const hold = paymentHold(notesText, this.now());
+        // Review, 25 Nov 2026: the hold ended at 15:41 but the model's own memory still said "no paid offers while cannot_pay holds", so a very
+        // hot fan got four free photos and no offer for hours. Say plainly when the hold is over.
+        const holdEnded = !hold && /^Payment hold:/m.test(String(notesText ?? ""));
         const holdText = hold && !(history.lastBoughtAt && history.lastBoughtAt > hold.setAt)
           ? `\nPayment hold: he said he cannot pay right now (until ${new Date(hold.until).toISOString().slice(0, 16)} UTC, or until he says it works or buys). No new paid offer; help him and stay warm.`
+          : holdEnded
+            ? "\nPayment hold: ENDED. Whatever your notes say about cannot_pay or \"no offers\", that is over: when he is hot, make one small, easy paid offer (or ask once, lightly, whether his payment works now) instead of more free photos. If he says again it still fails, call payment_trouble again."
           : "";
         return ok(`${profileText(insights, history, this.rules)}\n${photos}${holdText}`);
       }
