@@ -314,7 +314,7 @@ export function withPaymentHold(notes, reason, nowMs = Date.now()) {
 // The buyer reminder (review, 24 Nov 2026) is given at most once per BUYER_NUDGE_GAP_MS per fan, so a fan who is sad or tired is
 // not reminded on every reply. Kept in your part of his note.
 const NUDGE_LINE = "Buyer offer reminder:";
-export const BUYER_NUDGE_GAP_MS = 45 * 60_000;
+export const BUYER_NUDGE_GAP_MS = 25 * 60_000; // review, 25 Nov 2026: was 45 min; hot chats went hours with no offer
 export const buyerNudgeDue = (notes, now = Date.now()) => {
   const line = splitNotes(notes).own.split("\n").find((l) => l.startsWith(NUDGE_LINE));
   const at = Number(/\[t=(\d+)\]/.exec(line ?? "")?.[1]);

@@ -566,8 +566,9 @@ export class JobTools {
 
     // Review, 24 Nov 2026 (12 hours): long warm chats with buyers got no priced step for 35-80 messages. Once, when about
     // buyerTalkMaxReplies of her messages went out since her newest paid one and a paid offer is allowed now, remind the model.
-    if (!this.photoSent && !this.followUp && !this.thanks && !this.noSale && !this.research && !this.vip && !this.buyerTalkNudged) {
-      const limit = this.rules.buyerTalkMaxReplies ?? 20;
+    // Review, 25 Nov 2026 ("we sell very less even to hot fans"): VIPs and fans who never paid get the reminder too, after 10 messages.
+    if (!this.photoSent && !this.followUp && !this.thanks && !this.noSale && !this.research && !this.buyerTalkNudged && !this.freeTalkNudged) {
+      const limit = this.rules.buyerTalkMaxReplies ?? 10;
       const chat = await this.readChat(SALES_HISTORY_MESSAGES).catch(() => null);
       const notesNow = chat ? await api.getNotes(fanUuid).catch(() => null) : null;
       if (chat && notesNow != null && sincePaidRun(chat, fanUuid) >= limit && buyerNudgeDue(notesNow, this.now())) {
@@ -576,12 +577,17 @@ export class JobTools {
         history.paymentHold = paymentHold(notesNow, this.now());
         history.priceAnchorUsd = priceAnchorUsd(insights);
         const spentBefore = (insights?.spending?.total?.netTotal ?? 0) > 0 || history.bought > 0;
-        if (spentBefore && !photoRefusal("pack", history, this.now(), this.rules.minPriceUsd, this.rules, false)) {
+        if (!photoRefusal("pack", history, this.now(), this.rules.minPriceUsd, this.rules, false)) {
           this.buyerTalkNudged = true;
           await api.putNotes(fanUuid, withBuyerNudge(notesNow, this.now())).catch(() => {});
+          const step = spentBefore
+            ? "one priced step priced for him: send_photo kind paid or send_ppv_pack with a personal caption made of his own words (for a past tipper the tip line fits too)"
+            : history.freePhotos > 0
+              ? "his small, easy first unlock: send_photo kind paid, a cheap single, with his own words as the caption"
+              : "a free photo first (send_photo kind free) if he has shown real interest, so the paid one can follow on his reaction";
           return refuse(
-            `Not sent yet: he has paid before and you have written ${limit}+ messages to him since your last priced offer. If he is warm (a compliment, flirting, interest in you), ` +
-              "call send_reply again with your line, then one light priced step right after it: send_photo kind paid or send_ppv_pack, priced for him, with a personal caption (for a past tipper the tip line fits too). " +
+            `Not sent yet: you have written ${limit}+ messages to him since your last priced offer and the chat is still only words. Heat that is not turned into a sale now cools off. ` +
+              `If he is warm (flirting, a compliment on your looks or body, anything sexual, "I want you", "I miss you", asking about you with interest), call send_reply again with your line and then ${step}, in this same reply. ` +
               "If he is sad, worried, tired or saying goodnight, just call send_reply again with your line and stay warm.",
           );
         }
@@ -737,9 +743,9 @@ export class JobTools {
       return refuse("The chat changed. Send nothing more. Stop here.");
     }
     // Chat review, 14 Nov 2026: free sets in a row with no paid offer between them sold nothing. The purchase bonus and a tip thank-you always go.
-    const streak = salesHistory(messages, fanUuid, this.now(), this.rules).freeStreak;
-    if (!this.thanks && streak >= (this.vip ? VIP_MAX_FREE_STREAK : MAX_FREE_STREAK))
-      return refuse(`He has had ${streak} free photo messages in a row with no paid offer after them. No free set now: send a small paid single of what he asked for (at or below his last price) with send_photo, and give a set as the bonus when he buys.`);
+    // Review, 25 Nov 2026: sets and selfies skipped the first-buyer free cap (a $0 fan got 6 free photos, no paid offer); same guard as send_photo now.
+    const freeWhy = await this.#freeRefusal(messages);
+    if (freeWhy) return refuse(`${freeWhy} No free set now.`);
     const ever = await this.#everSentMedia();
     if (!ever) return refuse("His photo history could not be read this time. Send no set now; answer in words.");
     const sets = await this.#momentSets().catch(() => null);
@@ -784,6 +790,16 @@ export class JobTools {
    * photo to the same fan twice (everything sent to him is read back). Not in a follow-up. Free, no streak or first-buyer cap: it
    * is the everyday proof-of-her photo, and the folder is small.
    */
+  /** Why a free photo (set or selfie) may not go out now, or null. The same caps as send_photo kind free; a thank-you always goes. */
+  async #freeRefusal(messages) {
+    if (this.thanks) return null;
+    const history = await this.#history(messages);
+    history.paymentHold = paymentHold(await this.api.getNotes(this.fanUuid).catch(() => null), this.now());
+    history.freeStreakLimit = this.vip ? VIP_MAX_FREE_STREAK : MAX_FREE_STREAK;
+    const insights = await this.api.getFanInsights(this.fanUuid).catch(() => null);
+    return photoRefusal("free", history, this.now(), 0, this.rules, isFirstBuyer(insights, history, this.vip));
+  }
+
   async #sendSelfie(args) {
     const { api, fanUuid } = this;
     if (this.followUp) return refuse("No photos in a follow-up. Stop here.");
@@ -798,6 +814,8 @@ export class JobTools {
       this.wroteAgain = true;
       return refuse("The chat changed. Send nothing more. Stop here.");
     }
+    const freeWhy = await this.#freeRefusal(messages);
+    if (freeWhy) return refuse(`${freeWhy} No free selfie now.`);
     const folders = (await Promise.resolve().then(() => api.listFolders()).catch(() => null))?.filter((f) => isSelfieFolder(f.name));
     if (!folders) return refuse("The selfie folder could not be read this time. Answer in words.");
     if (!folders.length) return refuse("No selfies are available. Answer in words.");

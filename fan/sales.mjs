@@ -10,7 +10,8 @@ export const VIP_MAX_FREE_STREAK = 6;
 // after this many paid offers in a row that he has not bought, no new paid offer for UNBOUGHT_PAUSE_HOURS. Free photos and talk go on.
 // Supersedes the 19 Nov "no open-offer limit". A purchase resets the run.
 export const MAX_UNBOUGHT_PAID_RUN = 2;
-export const UNBOUGHT_PAUSE_HOURS = 12;
+// Review, 25 Nov 2026 ("we sell very less even to hot fans"): 12 h blocked hot buyers for a whole evening; 3 h, then a different format.
+export const UNBOUGHT_PAUSE_HOURS = 3;
 // Review, 24 Nov 2026 (evening): a second paid offer within minutes of an unbought first one sold nothing. Minimum gap after an unbought paid offer.
 export const UNBOUGHT_GAP_MINUTES = 20;
 
@@ -208,7 +209,7 @@ export function photoRefusal(kind, h, now, priceUsd, rules, firstBuyer = false) 
   if ((h.unboughtRun ?? 0) >= 1 && h.lastPaidAt && now - h.lastPaidAt < UNBOUGHT_GAP_MINUTES * 60_000)
     return `Your last paid offer went out ${Math.max(1, Math.round((now - h.lastPaidAt) / 60_000))} min ago and he has not bought it. No second paid offer within ${UNBOUGHT_GAP_MINUTES} minutes: let him look at it. Answer him in words, or a free photo if the rules allow, and mention the locked one only if he brings it up.`;
   if ((h.unboughtRun ?? 0) >= MAX_UNBOUGHT_PAID_RUN && h.lastPaidAt && now - h.lastPaidAt < UNBOUGHT_PAUSE_HOURS * 3600_000)
-    return `He has ${h.unboughtRun} paid offers in a row that he has not bought. No new paid offer for now: talk with him, or give a free photo or an "in the moment" set, and mention the locked one only if he brings it up.`;
+    return `He has ${h.unboughtRun} paid offers in a row that he has not bought. No new paid offer for now: talk with him, or give a free photo or an "in the moment" set, and mention the locked one only if he brings it up. When the pause ends, change the format (a pack with a free preview instead of a single, or a smaller price), not more of the same.`;
   // Owner, 19 Nov 2026 (superseded 24 Nov by the unbought run above): "we shouldn't have any open-offer limit ... if he doesn't open the previous we send new ones". No limit on unopened paid messages.
   if (h.lastPaidAt && now - h.lastPaidAt < rules.paidPhotoHours * 3600_000) return `He got a paid photo in the last ${rules.paidPhotoHours} hours. No new one yet.`;
   return null;
