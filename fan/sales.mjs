@@ -14,6 +14,8 @@ export const MAX_UNBOUGHT_PAID_RUN = 2;
 export const UNBOUGHT_PAUSE_HOURS = 3;
 // Review, 24 Nov 2026 (evening): a second paid offer within minutes of an unbought first one sold nothing. Minimum gap after an unbought paid offer.
 export const UNBOUGHT_GAP_MINUTES = 20;
+// Owner, 25 Nov 2026 (superior-flamingo-529): hot and writing every minute, but 3 unbought offers meant a 3 h pause and, with the free cap used up, nothing at all to send. The pause only holds a fan who has gone quiet; a fan who wrote in the last LIVE_FAN_MINUTES is still sold to (the 20-minute gap after an unbought offer stays).
+export const LIVE_FAN_MINUTES = 15;
 
 const isAiRefurbished = (m) => /ai image/i.test(m.name ?? "");
 
@@ -112,10 +114,11 @@ export function pickPack(pool, h, count, nude, random, vip = false) {
 export function salesHistory(messages, fanUuid, now, rules) {
   // freeStreak: free photo messages to him since the newest paid one, within FREE_STREAK_HOURS (chat review, 14 Nov 2026).
   // lastBoughtSingleUsd: the price of the newest single paid photo he bought.
-  const h = { seen: new Set(), offeredBefore: new Set(), freePhotos: 0, paidPhotos: 0, paidPacks: 0, bought: 0, lastFreeAt: null, lastPaidAt: null, firstPaidAt: null, openPaid: 0, freeStreak: 0, lastBoughtSingleUsd: null, unboughtRun: 0, lastUnboughtSingleUsd: null, lastBoughtAt: null, recentSeen: new Set() };
+  const h = { seen: new Set(), offeredBefore: new Set(), freePhotos: 0, paidPhotos: 0, paidPacks: 0, bought: 0, lastFreeAt: null, lastPaidAt: null, firstPaidAt: null, openPaid: 0, freeStreak: 0, lastBoughtSingleUsd: null, unboughtRun: 0, lastUnboughtSingleUsd: null, lastBoughtAt: null, recentSeen: new Set(), lastFanAt: null };
   let streakOpen = true;
   let unboughtOpen = true; // counting his newest paid offers until the first one he bought
   for (const m of messages) {
+    if (m.sender.uuid === fanUuid) h.lastFanAt = Math.max(h.lastFanAt ?? 0, Date.parse(m.sentAt) || 0);
     if (m.sender.uuid === fanUuid || !m.mediaUuids?.length) continue;
     const at = Date.parse(m.sentAt) || 0;
     const recent = now - at < rules.openPpvDays * DAY_MS;
@@ -208,7 +211,7 @@ export function photoRefusal(kind, h, now, priceUsd, rules, firstBuyer = false) 
   // blocks the next one for UNBOUGHT_GAP_MINUTES: he has to look at it first.
   if ((h.unboughtRun ?? 0) >= 1 && h.lastPaidAt && now - h.lastPaidAt < UNBOUGHT_GAP_MINUTES * 60_000)
     return `Your last paid offer went out ${Math.max(1, Math.round((now - h.lastPaidAt) / 60_000))} min ago and he has not bought it. No second paid offer within ${UNBOUGHT_GAP_MINUTES} minutes: let him look at it. Answer him in words, or a free photo if the rules allow, and mention the locked one only if he brings it up.`;
-  if ((h.unboughtRun ?? 0) >= MAX_UNBOUGHT_PAID_RUN && h.lastPaidAt && now - h.lastPaidAt < UNBOUGHT_PAUSE_HOURS * 3600_000)
+  if ((h.unboughtRun ?? 0) >= MAX_UNBOUGHT_PAID_RUN && h.lastPaidAt && now - h.lastPaidAt < UNBOUGHT_PAUSE_HOURS * 3600_000 && !(h.lastFanAt && now - h.lastFanAt < LIVE_FAN_MINUTES * 60_000))
     return `He has ${h.unboughtRun} paid offers in a row that he has not bought. No new paid offer for now: talk with him, or give a free photo or an "in the moment" set, and mention the locked one only if he brings it up. When the pause ends, change the format (a pack with a free preview instead of a single, or a smaller price), not more of the same.`;
   // Owner, 19 Nov 2026 (superseded 24 Nov by the unbought run above): "we shouldn't have any open-offer limit ... if he doesn't open the previous we send new ones". No limit on unopened paid messages.
   if (h.lastPaidAt && now - h.lastPaidAt < rules.paidPhotoHours * 3600_000) return `He got a paid photo in the last ${rules.paidPhotoHours} hours. No new one yet.`;
