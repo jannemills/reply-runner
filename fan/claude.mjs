@@ -102,7 +102,7 @@ export function category(text) {
   if (/usage policy|unable to respond to this request|violat/i.test(t)) return "policy_refusal";
   if (/output token maximum|max_tokens/i.test(t)) return "output_too_long";
   if (/credit balance|billing/i.test(t)) return "billing";
-  if (/invalid model|model .*not (found|available)|does not have access/i.test(t)) return "model_unavailable";
+  if (/invalid model|model .*not (found|available)|does not have access|selected model|may not exist|pick a different model/i.test(t)) return "model_unavailable";
   if (/prompt is too long|context (window|length)|too many tokens/i.test(t)) return "prompt_too_long";
   if (/max(imum)? turns/i.test(t)) return "error_max_turns";
   if (/overloaded/i.test(t)) return "overloaded";
@@ -142,7 +142,21 @@ export async function runFilter({ model, system, prompt, schema }) {
   return answer;
 }
 
-export async function runAgent({ model, system, prompt, toolNames, mcpUrl, mcpKey }) {
+// Review, 26 Nov 2026: jobs failed after one turn with a short model error while other models worked. One retry on another model.
+const FALLBACK = { "claude-fable-5-2": "claude-opus-5-5", "claude-opus-5-5": "claude-sonnet-5-5", "claude-sonnet-5-5": "claude-opus-5-5", "claude-haiku-5-5": "claude-sonnet-5-5" };
+
+export async function runAgent(args) {
+  try {
+    return await runAgentOnce(args);
+  } catch (err) {
+    const fallback = FALLBACK[args.model];
+    if (!fallback || !/claude failed: (model_unavailable|unnamed_success_t1_)/.test(String(err?.message))) throw err;
+    console.log(`model fallback: ${args.model} -> ${fallback}`);
+    return runAgentOnce({ ...args, model: fallback });
+  }
+}
+
+async function runAgentOnce({ model, system, prompt, toolNames, mcpUrl, mcpKey }) {
   // Owner, 15 Nov 2026: Sonnet (fans who spent $0) runs at high effort, Opus and Fable (spenders, VIPs) at medium; the filter stays low.
   const effort = /haiku/i.test(model) ? "low" : "medium"; // 17 Nov 2026 (token budget): Sonnet for $0 fans lowered from high to medium; greetings run on Haiku at low
   const result = await runClaude({

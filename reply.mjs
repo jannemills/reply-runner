@@ -246,6 +246,7 @@ if (jobRes.status === 404) {
     });
     const server = await startToolServer(tools, TOOLS);
     try {
+      console.log(`model: ${/^claude-[a-z0-9-]+$/.test(String(agent.model)) ? agent.model : "other"}`); // a model id, never chat text
       await runAgent({ ...agent, toolNames: TOOLS.map((t) => t.name), mcpUrl: server.url, mcpKey: server.key });
     } finally {
       server.close();
