@@ -26,6 +26,8 @@ const FREE_HOUR_MS = 60 * 60_000;
 // Review, 26 Nov 2026: a fan got $5 five minutes into a new chat. No paid offer in the first NEW_CHAT_MINUTES of a chat that just started.
 export const NEW_CHAT_MINUTES = 10;
 export const FORMAT_SWITCH_HOURS = 6;
+// Owner, 26 Nov 2026: "we should be able to send same ppv photos if they were not bought before": an unbought paid photo can be offered again after this.
+export const REOFFER_COOLDOWN_HOURS = 24;
 
 const isAiRefurbished = (m) => /ai image/i.test(m.name ?? "");
 
@@ -91,15 +93,20 @@ export async function buildPool(api) {
 
 /**
  * Owner, 6 Nov 2026: "we should sell to VIP a lot". When a VIP has had every paid photo, paid offers to him may use photos he
- * has never seen from the free and warm-up folders. Only for VIPs and only after "ppv" is used up for him.
+ * has never seen from the free and warm-up folders. Only after "ppv" is used up for him.
+ * Owner, 26 Nov 2026 ("we should always sell"; a buyer had every "ppv" photo and could be sold nothing): the same for every fan who
+ * has bought in this chat (the callers pass vip || bought).
  */
 export const VIP_EXTRA_FOLDERS = ["thong", "zapoznavanje 1", "zagrevanje 1", "miksanje 1"];
 
 /** The paid photos he can still be sold: "ppv", and for a VIP whose "ppv" is used up, the unseen free and warm-up photos. */
 export function paidCandidates(pool, h, vip) {
+  // Never offered first; then (VIPs and buyers) unseen extra photos; then paid photos he was offered before and never bought (owner, 26 Nov 2026).
   const ppv = pool.ppv.filter((p) => !h.seen.has(p.uuid));
-  if (ppv.length || !vip) return ppv;
-  return (pool.vipExtra ?? []).filter((p) => !h.seen.has(p.uuid) && !h.offeredBefore.has(p.uuid));
+  const neverOffered = ppv.filter((p) => !h.offeredBefore.has(p.uuid));
+  if (neverOffered.length) return neverOffered;
+  const extra = vip ? (pool.vipExtra ?? []).filter((p) => !h.seen.has(p.uuid) && !h.offeredBefore.has(p.uuid)) : [];
+  return extra.length ? extra : ppv;
 }
 
 /** A pack for one paid message: one random unseen free preview from "preview" (or "free" when "preview" is empty) plus `count` random unseen photos from "ppv". Null when too few are left. */
@@ -112,6 +119,9 @@ export function pickPack(pool, h, count, nude, random, vip = false) {
   // A VIP with too few paid photos left gets the pack topped up from the unseen free and warm-up photos.
   if (vip && rest.length < count) rest = [...rest, ...(pool.vipExtra ?? []).filter((p) => !h.seen.has(p.uuid) && !h.offeredBefore.has(p.uuid))];
   if (!previews.length || rest.length < count) return null;
+  // Never offered first; photos offered before and never bought only to fill the pack (owner, 26 Nov 2026).
+  const neverOffered = rest.filter((p) => !h.offeredBefore.has(p.uuid));
+  if (neverOffered.length >= count) rest = neverOffered;
   if (nude && rest.filter((p) => p.nude).length >= count) rest = rest.filter((p) => p.nude);
   const preview = previews[Math.floor(random() * previews.length)].uuid;
   const left = [...rest];
@@ -164,7 +174,10 @@ export function salesHistory(messages, fanUuid, now, rules) {
         m.mediaUuids.forEach((u) => h.seen.add(u));
       } else {
         if (oneToOne && recent) h.openPaid++;
-        m.mediaUuids.forEach((u) => (recent ? h.seen : h.offeredBefore).add(u));
+        // Owner, 26 Nov 2026: a paid photo he never bought was never unlocked, so he has not seen it: after REOFFER_COOLDOWN_HOURS it may
+        // be offered again (paid only). A pack's free preview he did see. Was: blocked for openPpvDays (7 days).
+        const fresh = now - at < REOFFER_COOLDOWN_HOURS * 3600_000;
+        m.mediaUuids.forEach((u) => (u === m.mediaPreviewUuid || fresh ? h.seen : h.offeredBefore).add(u));
       }
     } else {
       if (oneToOne) {

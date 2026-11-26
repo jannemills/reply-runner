@@ -248,7 +248,14 @@ export const announcesPhoto = (text) =>
 
 /** Review, 26 Nov 2026: stock lines that went word for word to 14+ fans in two days, none answered. */
 export const stockLine = (text) =>
-  /\bno (pressure|rush)\b|\bglad you(?:'|’)?re here\b|\bnema (pritiska|žurbe|zurbe)\b/iu.test(String(text ?? ""));
+  /\bno (pressure|rush)\b|\b(glad|like that|love that) you(?:'|’)?re here\b|\bglad you (wrote|popped in|came)\b|\bmade my (day|morning|afternoon|evening|night)\b|\bnema (pritiska|žurbe|zurbe)\b/iu.test(String(text ?? ""));
+
+/**
+ * Review, 26 Nov 2026: a caption claimed a vault photo was made just for him ("vec jesam... bas za tebe, ovaj put sprijeda").
+ * Photos are never claimed as taken right now or for him (owner rule: no moment claims on photo sets).
+ */
+export const momentClaim = (text) =>
+  /\b(upravo|ba[sš] sad|maloprije|ve[cć] jesam|just (took|made|shot|snapped)|took (it|this|one) (just )?(now|for you)|made (it|this|one) (just )?for you)\b|\b(slikala|uslikala|napravila) (sam )?(se |je |ovu |ovo )?(sad|upravo|za tebe|samo za tebe)\b/iu.test(String(text ?? ""));
 
 /**
  * He asks to see her: a photo, her face or body, "show me", "where are your photos", "I'll give you a gift for it".
@@ -274,6 +281,7 @@ export class JobTools {
   #busy = false;
   #pool = null;
   #everSent = null;
+  #locked = null; // paid photos he was offered and never bought (owner, 26 Nov 2026)
 
   /**
    * @param {object} o
@@ -359,7 +367,7 @@ export class JobTools {
         const insights = await this.api.getFanInsights(this.fanUuid).catch(() => null);
         const pool = await this.#getPool();
         const freeLeft = pool ? pool.free.filter((p) => !history.seen.has(p.uuid) && !history.offeredBefore.has(p.uuid)).length : 0;
-        const paidLeft = pool ? paidCandidates(pool, history, this.vip).length : 0;
+        const paidLeft = pool ? paidCandidates(pool, history, this.vip || history.bought > 0).length : 0;
         // Owner, 6 Nov 2026: a top spender asked for photos three times and got only small talk because he had bought every paid photo.
         const moment = await this.#momentSets().catch(() => null);
         const momentLeft = moment ? moment.filter((s) => !s.used) : null;
@@ -464,7 +472,7 @@ export class JobTools {
     const pool = await this.#getPool();
     if (!pool) return false;
     const history = await this.#history(messages);
-    return pool.free.some((p) => !history.seen.has(p.uuid)) || paidCandidates(pool, history, this.vip).length > 0;
+    return pool.free.some((p) => !history.seen.has(p.uuid)) || paidCandidates(pool, history, this.vip || history.bought > 0).length > 0;
   }
 
   #getPool() {
@@ -690,7 +698,13 @@ export class JobTools {
    */
   #everSentMedia() {
     this.#everSent ??= this.readChat(EVER_SENT_MESSAGES)
-      .then((messages) => new Set(messages.filter((m) => m.sender.uuid !== this.fanUuid).flatMap((m) => m.mediaUuids ?? [])))
+      .then((messages) => {
+        const hers = messages.filter((m) => m.sender.uuid !== this.fanUuid);
+        // Owner, 26 Nov 2026: a paid photo he never bought was never unlocked: "locked" (not seen) unless he got it some other way.
+        const open = new Set(hers.flatMap((m) => (m.pricing && !m.purchasedAt ? (m.mediaPreviewUuid ? [m.mediaPreviewUuid] : []) : m.mediaUuids ?? [])));
+        this.#locked = new Set(hers.flatMap((m) => (m.pricing && !m.purchasedAt ? m.mediaUuids ?? [] : [])).filter((u) => !open.has(u)));
+        return new Set(hers.flatMap((m) => m.mediaUuids ?? []));
+      })
       .catch(() => null);
     return this.#everSent;
   }
@@ -710,7 +724,8 @@ export class JobTools {
     if (his.length && messages.length < SALES_HISTORY_MESSAGES) history.chatStartAt = Math.min(...his);
     history.freeHourLimit = this.vip ? VIP_FREE_PER_HOUR : FREE_PER_HOUR;
     const ever = await this.#everSentMedia();
-    if (ever) for (const u of ever) history.seen.add(u);
+    // A locked photo he never bought can be offered again as paid (owner, 26 Nov 2026), never free; salesHistory keeps the last 24 h blocked.
+    if (ever) for (const u of ever) (this.#locked?.has(u) && !history.seen.has(u) ? history.offeredBefore : history.seen).add(u);
     return history;
   }
 
@@ -757,6 +772,10 @@ export class JobTools {
     const text = finalText(String(args.text ?? ""));
     if (!text || text.length > 200 || text.includes("\n"))
       return refuse("Refused: one short line, at most 200 characters, no links, no mention of AI.");
+    if (!this.momentClaimNudged && momentClaim(text)) {
+      this.momentClaimNudged = true;
+      return refuse("Not sent: the caption says the photo was just taken or made for him. Never claim that: give it a few neutral, playful words (or his own words) and call it again.");
+    }
     const messages = await this.readChat(SALES_HISTORY_MESSAGES);
     const anchor = this.replied ? this.sentUuid : this.newestUuid;
     if (!anchor || !this.#anchorHolds(messages, anchor)) {
@@ -829,6 +848,10 @@ export class JobTools {
     if (!gate.ok) return refuse(gate.reason ?? "Not allowed now. Stop here.");
     const text = finalText(String(args.text ?? ""));
     if (!text || text.length > 200 || text.includes("\n")) return refuse("Refused: one short line, at most 200 characters, no links, no mention of AI.");
+    if (!this.momentClaimNudged && momentClaim(text)) {
+      this.momentClaimNudged = true;
+      return refuse("Not sent: the caption says the photo was just taken or made for him. Never claim that: give it a few neutral, playful words (or his own words) and call it again.");
+    }
     const messages = await this.readChat(SALES_HISTORY_MESSAGES);
     const anchor = this.replied ? this.sentUuid : this.newestUuid;
     if (!anchor || !this.#anchorHolds(messages, anchor)) {
@@ -920,6 +943,10 @@ export class JobTools {
     const text = finalText(String(args.text ?? ""));
     if (!text || text.length > 200 || text.includes("\n"))
       return refuse("Refused: one short line, at most 200 characters, no links, no mention of AI.");
+    if (!this.momentClaimNudged && momentClaim(text)) {
+      this.momentClaimNudged = true;
+      return refuse("Not sent: the caption says the photo was just taken or made for him. Never claim that: give it a few neutral, playful words (or his own words) and call it again.");
+    }
     const messages = await this.readChat(SALES_HISTORY_MESSAGES);
     const anchor = this.replied ? this.sentUuid : this.newestUuid;
     if (!anchor || !this.#anchorHolds(messages, anchor)) {
@@ -933,7 +960,7 @@ export class JobTools {
     const refusal = photoRefusal("pack", history, this.now(), rules.minPriceUsd, rules, firstBuyer);
     if (refusal) return refuse(refusal);
     const pool = await this.#getPool();
-    const pack = pool && pickPack(pool, history, count, args.nude === true, this.random, this.vip);
+    const pack = pool && pickPack(pool, history, count, args.nude === true, this.random, this.vip || history.bought > 0);
     if (!pack) return refuse("Not enough unseen paid photos or previews for him. Send no pack: try send_photo kind paid, and if that is refused too, follow \"Out of paid photos\" (free photo if he wants photos, ready_for_offer).");
 
     if (this.replied) await this.#wait(typingDelayMs(text));
@@ -959,6 +986,10 @@ export class JobTools {
     const text = finalText(String(args.text ?? ""));
     if (!text || text.length > 200 || text.includes("\n"))
       return refuse("Refused: one short line, at most 200 characters, no links, no mention of AI.");
+    if (!this.momentClaimNudged && momentClaim(text)) {
+      this.momentClaimNudged = true;
+      return refuse("Not sent: the caption says the photo was just taken or made for him. Never claim that: give it a few neutral, playful words (or his own words) and call it again.");
+    }
 
     const messages = await this.readChat(SALES_HISTORY_MESSAGES);
     const anchor = this.replied ? this.sentUuid : this.newestUuid;
@@ -984,7 +1015,7 @@ export class JobTools {
     const refusal = photoRefusal(kind, history, this.now(), priceUsd, rules, firstBuyer);
     if (refusal) return refuse(refusal);
     const pool = await this.#getPool();
-    const photo = pool && pickPhoto(pool, kind, history, args.nude === true, this.random, this.vip);
+    const photo = pool && pickPhoto(pool, kind, history, args.nude === true, this.random, this.vip || history.bought > 0);
     if (!photo)
       return refuse(
         kind === "paid"
