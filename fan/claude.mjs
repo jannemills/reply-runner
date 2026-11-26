@@ -42,7 +42,9 @@ export function runClaude({ prompt, model, system, schema, effort = "low", workD
     child.on("error", reject);
     child.on("close", (code) => {
       try {
-        resolve(JSON.parse(out));
+        const parsed = JSON.parse(out);
+        if (parsed && typeof parsed === "object") parsed._stderr = category(err);
+        resolve(parsed);
       } catch {
         reject(new Error(`claude failed: ${category(err) ?? `exit_${Number(code) || 0}`}`));
       }
@@ -110,8 +112,15 @@ function failure(result) {
   // Only known failures are named: other result text could quote the chat.
   // Review, 26 Nov 2026: the CLI's result subtype (e.g. error_max_turns) and an API status code are fixed words, never chat text.
   const subtype = /^error_[a-z_]+$/.test(String(result.subtype ?? "")) ? result.subtype : null;
-  const named = subtype ?? category(result.result);
+  const named = subtype ?? category(result.result) ?? result._stderr;
   if (named) return new Error(`claude failed: ${named}`);
+  // Review, 26 Nov 2026: still unnamed. Numbers and fixed words only, never the text: what kind of result, after how many turns, how long.
+  if (result.is_error) {
+    const sub = /^[a-z_]{1,40}$/.test(String(result.subtype ?? "")) ? result.subtype : "none";
+    const turns = Number.isInteger(result.num_turns) ? result.num_turns : -1;
+    const len = typeof result.result === "string" ? result.result.length : -1;
+    return new Error(`claude failed: unnamed_${sub}_t${turns}_len${len}`);
+  }
   const known = /authenticate|limit|^API rejected the model or request$|^API structured output retries exhausted$|^Agent SDK ended without a result$/i.test(result.result ?? "") ? result.result.slice(0, 120) : "no usable answer";
   return new Error(`claude failed: ${known}`);
 }
