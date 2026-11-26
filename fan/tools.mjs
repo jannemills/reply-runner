@@ -25,7 +25,7 @@ import {
 } from "./chat.mjs";
 import { withTypo } from "./typo.mjs";
 import { MAX_VOICE_WORDS, speak, spokenText, voiceName, wordCount } from "./voice.mjs";
-import { buildPool, poolForFan, isFirstBuyer, freeTalkRun, sincePaidRun, MAX_FREE_STREAK, VIP_MAX_FREE_STREAK, notBuyingRefusal, paidCandidates, photoRefusal, priceAnchorUsd, pickPack, pickPhoto, profileText, salesHistory } from "./sales.mjs";
+import { buildPool, poolForFan, isFirstBuyer, freeTalkRun, sincePaidRun, MAX_FREE_STREAK, VIP_MAX_FREE_STREAK, FREE_PER_HOUR, VIP_FREE_PER_HOUR, notBuyingRefusal, paidCandidates, photoRefusal, priceAnchorUsd, pickPack, pickPhoto, profileText, salesHistory } from "./sales.mjs";
 
 const none = { type: "object", properties: {}, additionalProperties: false };
 
@@ -244,7 +244,11 @@ const refuse = (text) => ({ text, isError: true });
  * ("evo ...", "ovu pazi", "look at this", "here is one") must not be sent as text when no photo went out in this reply.
  */
 export const announcesPhoto = (text) =>
-  /\bevo\b[^.!?\n]{0,24}\b(nesto|nešto|slik\w*|foto\w*|jednu|ovu|ovo|ovaj|malo\s+smel\w*)|\bovu\s+(pazi|vidi|gledaj)|\b(pazi|vidi|gledaj)\s+ovu\b|\b(look at|check out)\s+(this|that)\b|\bhere(?:'s| is)\s+(a|one|my|something)\s+(pic|photo|picture|selfie|one)\b|\bhere you go\b|\b(sending|sent)\s+you\s+(a|one|something)\b|(?:^|[^\p{L}])(?:šaljem|saljem|poslala sam)\s+ti\b/iu.test(String(text ?? ""));
+  /\bevo\b[^.!?\n]{0,24}\b(nesto|nešto|slik\w*|foto\w*|jednu|ovu|ovo|ovaj|malo\s+smel\w*)|\bovu\s+(pazi|vidi|gledaj)|\b(pazi|vidi|gledaj)\s+ovu\b|\b(look at|check out)\s+(this|that)\b|\bhere(?:'s| is)\s+(a|one|my|something)\s+(pic|photo|picture|selfie|one)\b|\bhere you go\b|\b(sending|sent)\s+you\s+(a|one|something)\b|(?:^|[^\p{L}])(?:šaljem|saljem|poslala sam)\s+ti\b|\bti je ova\b|\bov[aeo]\s+(ovdje|ovde|ovdi)\b/iu.test(String(text ?? ""));
+
+/** Review, 26 Nov 2026: stock lines that went word for word to 14+ fans in two days, none answered. */
+export const stockLine = (text) =>
+  /\bno (pressure|rush)\b|\bglad you(?:'|’)?re here\b|\bnema (pritiska|žurbe|zurbe)\b/iu.test(String(text ?? ""));
 
 /**
  * He asks to see her: a photo, her face or body, "show me", "where are your photos", "I'll give you a gift for it".
@@ -600,6 +604,12 @@ export class JobTools {
       }
     }
 
+    // Review, 26 Nov 2026: "no pressure / no rush / glad you're here" is refused once; the second try goes out so he is never left unanswered.
+    if (!this.stockNudged && stockLine(text)) {
+      this.stockNudged = true;
+      return refuse("Not sent: drop \"no pressure\", \"no rush\", \"glad you're here\" and \"nema pritiska/žurbe\": they read like a template. Say the same in your own fresh words, or just ask him one specific thing about himself, and call send_reply again.");
+    }
+
     // Review, 24 Nov 2026 (evening): a line that announces a photo while none has gone out. Refused twice at most, so he is never left unanswered.
     if (!this.photoSent && !this.thanks && !this.research && (this.announceRefusals ??= 0) < 2 && announcesPhoto(text)) {
       this.announceRefusals += 1;
@@ -694,6 +704,11 @@ export class JobTools {
   /** His sales history, with every photo he ever got from her counted as seen (never send one twice). */
   async #history(messages) {
     const history = salesHistory(messages, this.fanUuid, this.now(), this.rules);
+    // Review, 26 Nov 2026: when the whole chat fits in what was read, his first message is when the talk started (no offer in its first
+    // minutes). Automations sent on joining do not count: a fan joined at 08:05, first wrote at 12:43 and got $5 at 12:48.
+    const his = messages.filter((m) => m.sender.uuid === this.fanUuid).map((m) => Date.parse(m.sentAt)).filter(Boolean);
+    if (his.length && messages.length < SALES_HISTORY_MESSAGES) history.chatStartAt = Math.min(...his);
+    history.freeHourLimit = this.vip ? VIP_FREE_PER_HOUR : FREE_PER_HOUR;
     const ever = await this.#everSentMedia();
     if (ever) for (const u of ever) history.seen.add(u);
     return history;
@@ -960,7 +975,7 @@ export class JobTools {
       }
     }
     const history = await this.#history(messages);
-    if (this.thanks) history.freeStreak = 0; // the thank-you photo for a tip or purchase always goes
+    if (this.thanks) history.freeStreak = history.freeLastHour = 0; // the thank-you photo for a tip or purchase always goes
     history.paymentHold = this.thanks ? null : paymentHold(await api.getNotes(fanUuid), this.now()); // a tip or purchase means he can pay
     history.freeStreakLimit = this.vip ? VIP_MAX_FREE_STREAK : MAX_FREE_STREAK;
     const insights = await api.getFanInsights(fanUuid).catch(() => null);

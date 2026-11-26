@@ -46,7 +46,9 @@ if (jobRes.status === 404) {
   } catch (err) {
     // Chat review, 14 Nov 2026: 185 replies failed in two hours and the log said nothing. Print only a fixed category, never the message.
     const msg = String(err?.message ?? "");
-    const kind = /claude failed: .*limit/i.test(msg) ? "claude_usage_limit" : /claude failed: .*authenticate/i.test(msg) ? "claude_login" : msg.startsWith("claude") ? "claude_other" : err?.status ? `fanvue_${err.status}` : "other";
+    // Review, 26 Nov 2026: 73 jobs for one fan failed as "claude_other" with no cause. The CLI's own result subtype and API status are named now.
+    const named = /claude failed: (error_[a-z_]+|api_\d{3}|overloaded)/.exec(msg)?.[1];
+    const kind = named ? `claude_${named}` : /claude failed: .*limit/i.test(msg) ? "claude_usage_limit" : /claude failed: .*authenticate/i.test(msg) ? "claude_login" : msg.startsWith("claude") ? "claude_other" : err?.status ? `fanvue_${err.status}` : "other";
     console.log(`error kind: ${kind}`);
     // The status of a Fanvue error is passed on (400 means he cannot be contacted); the message may name the fan, so it stays private.
     await post("", { error: err.message, errorStatus: err.status });
@@ -131,6 +133,10 @@ if (jobRes.status === 404) {
       // He wrote or someone answered by hand while we waited: his message is answered instead, no heart.
       const latest = await api.fetchMessages(fanUuid);
       if (needsReply(latest, fanUuid) || latest[0]?.uuid !== newest?.uuid) return void (await post("", { done: true, skipped: "answered" }));
+      // Review, 26 Nov 2026: a lone heart 17 s to 3 min after the welcome automation read as a double send. No heart when her side
+      // (automations included) wrote in the last 5 minutes.
+      const lastOurs = latest[0] && latest[0].sender.uuid !== fanUuid ? Date.parse(latest[0].sentAt) || 0 : 0;
+      if (lastOurs && Date.now() - lastOurs < 5 * 60_000) return void (await post("", { done: true, skipped: "answered" }));
       await api.sendText(fanUuid, "🤍");
       const sent = (await api.fetchMessages(fanUuid).catch(() => []))[0];
       return void (await post("", { done: true, followUp: true, replied: true, sentUuid: sent && sent.sender.uuid !== fanUuid ? sent.uuid : undefined }));

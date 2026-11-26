@@ -93,6 +93,11 @@ async function runWithApi(prompt, options) {
 
 function failure(result) {
   // Only known failures are named: other result text could quote the chat.
+  // Review, 26 Nov 2026: the CLI's result subtype (e.g. error_max_turns) and an API status code are fixed words, never chat text.
+  const subtype = /^error_[a-z_]+$/.test(String(result.subtype ?? "")) ? result.subtype : null;
+  const api = /API Error: (\d{3})/.exec(String(result.result ?? ""))?.[1];
+  const overloaded = /overloaded/i.test(String(result.result ?? ""));
+  if (subtype || api || overloaded) return new Error(`claude failed: ${subtype ?? (api ? `api_${api}` : "overloaded")}`);
   const known = /authenticate|limit|^API rejected the model or request$|^API structured output retries exhausted$|^Agent SDK ended without a result$/i.test(result.result ?? "") ? result.result.slice(0, 120) : "no usable answer";
   return new Error(`claude failed: ${known}`);
 }
@@ -112,7 +117,9 @@ export async function runAgent({ model, system, prompt, toolNames, mcpUrl, mcpKe
     model, system, prompt, effort,
     mcpServers: { chat: { type: "http", url: mcpUrl, headers: { "x-tool-key": mcpKey } } },
     allowedTools: toolNames.map((name) => `mcp__chat__${name}`),
-    maxTurns: /haiku/i.test(model) ? 4 : /sonnet/i.test(model) ? 5 : 10,
+    // Review, 26 Nov 2026: tool refusals (photo caps, announced photo, sell reminder) each use a turn; at 5 a $0 fan's job ran out
+    // before anything was sent and failed every time for 3.5 hours. More room, still bounded.
+    maxTurns: /haiku/i.test(model) ? 6 : /sonnet/i.test(model) ? 9 : 12,
   });
   if (result.is_error) throw failure(result);
 }
