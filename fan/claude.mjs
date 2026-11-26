@@ -99,6 +99,10 @@ async function runWithApi(prompt, options) {
 /** A fixed word for a known Claude failure in a text, or null. The text itself is never passed on: it could quote the chat. */
 export function category(text) {
   const t = String(text ?? "");
+  if (/usage policy|unable to respond to this request|violat/i.test(t)) return "policy_refusal";
+  if (/output token maximum|max_tokens/i.test(t)) return "output_too_long";
+  if (/credit balance|billing/i.test(t)) return "billing";
+  if (/invalid model|model .*not (found|available)|does not have access/i.test(t)) return "model_unavailable";
   if (/prompt is too long|context (window|length)|too many tokens/i.test(t)) return "prompt_too_long";
   if (/max(imum)? turns/i.test(t)) return "error_max_turns";
   if (/overloaded/i.test(t)) return "overloaded";
@@ -114,6 +118,7 @@ function failure(result) {
   const subtype = /^error_[a-z_]+$/.test(String(result.subtype ?? "")) ? result.subtype : null;
   const named = subtype ?? category(result.result) ?? result._stderr;
   if (named) return new Error(`claude failed: ${named}`);
+  if (/authenticate|limit/i.test(String(result.result ?? ""))) return new Error(`claude failed: ${/authenticate/i.test(result.result) ? "could not authenticate" : "usage limit"}`);
   // Review, 26 Nov 2026: still unnamed. Numbers and fixed words only, never the text: what kind of result, after how many turns, how long.
   if (result.is_error) {
     const sub = /^[a-z_]{1,40}$/.test(String(result.subtype ?? "")) ? result.subtype : "none";
