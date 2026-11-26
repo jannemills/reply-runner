@@ -198,6 +198,7 @@ if (jobRes.status === 404) {
     const promptRes = await post("/prompt", promptBody);
     if (!promptRes.ok) throw new Error(`fetching the prompt failed: ${promptRes.status}`);
     const agent = await promptRes.json();
+    if (agent.skip || !agent.model) return void (await post("", { done: true, skipped: "answered" })); // review, 26 Nov 2026: never run Claude without a model
     // His comment goes to the model here, never through the Worker.
     if (comment) agent.prompt = `${agent.prompt}\n\n<his_comment>\n${comment}\n</his_comment>`;
     // Chat review, 14 Nov 2026: a fan on the English (USA) list got Serbian until he asked "English?".
