@@ -4,8 +4,9 @@ const DAY_MS = 24 * 3600_000;
 // Chat review, 14 Nov 2026: free photos in a row with no paid offer between them sold nothing (28 free in 10 minutes, 0 sales).
 const FREE_STREAK_HOURS = 12;
 // Owner, 24 Nov 2026: "you are free to send more free photos, more in the moment photos" (was 2, VIP 3).
-export const MAX_FREE_STREAK = 4;
-export const VIP_MAX_FREE_STREAK = 6;
+// Owner, 26 Nov 2026 (superseding it): "this should never happen again - we should always sell": after 2 free photos the next one is paid.
+export const MAX_FREE_STREAK = 2;
+export const VIP_MAX_FREE_STREAK = 3;
 // Chat review, 24 Nov 2026 (2 of 26 paid offers sold; one fan got 5 locked photos in 33 minutes after asking for a free one, none bought):
 // after this many paid offers in a row that he has not bought, no new paid offer for UNBOUGHT_PAUSE_HOURS. Free photos and talk go on.
 // Supersedes the 19 Nov "no open-offer limit". A purchase resets the run.
