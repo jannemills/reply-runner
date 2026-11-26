@@ -124,7 +124,11 @@ function failure(result) {
     const sub = /^[a-z_]{1,40}$/.test(String(result.subtype ?? "")) ? result.subtype : "none";
     const turns = Number.isInteger(result.num_turns) ? result.num_turns : -1;
     const len = typeof result.result === "string" ? result.result.length : -1;
-    return new Error(`claude failed: unnamed_${sub}_t${turns}_len${len}`);
+    // Only words from this fixed list are named, in the order they appear, so nothing from the chat can leak.
+    const KEYS = ["api", "error", "request", "invalid", "timeout", "tool", "mcp", "server", "schema", "json", "structured", "model", "thinking", "budget", "effort", "token", "stream", "aborted", "connection", "refused", "parameter", "temperature", "image", "media", "content", "blocked", "safety", "filter", "permission", "denied", "exceeded", "image_url", "base64", "size", "large", "unsupported", "format", "messages", "role", "empty", "length"];
+    const words = String(result.result ?? "").toLowerCase().split(/[^a-z_0-9]+/).filter((w) => KEYS.includes(w));
+    const seen = [...new Set(words)].slice(0, 8).join("-") || "nokeys";
+    return new Error(`claude failed: unnamed_${sub}_t${turns}_len${len}_${seen}`);
   }
   const known = /authenticate|limit|^API rejected the model or request$|^API structured output retries exhausted$|^Agent SDK ended without a result$/i.test(result.result ?? "") ? result.result.slice(0, 120) : "no usable answer";
   return new Error(`claude failed: ${known}`);

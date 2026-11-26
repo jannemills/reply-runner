@@ -47,7 +47,7 @@ if (jobRes.status === 404) {
     // Chat review, 14 Nov 2026: 185 replies failed in two hours and the log said nothing. Print only a fixed category, never the message.
     const msg = String(err?.message ?? "");
     // Review, 26 Nov 2026: 73 jobs for one fan failed as "claude_other" with no cause. The CLI's own result subtype and API status are named now.
-    const named = /claude failed: (error_[a-z_]+|api_\d{3}|overloaded|prompt_too_long|policy_refusal|output_too_long|billing|model_unavailable|network|exit_\d+|unnamed_[a-z_]+_t-?\d+_len-?\d+)/.exec(msg)?.[1];
+    const named = /claude failed: (error_[a-z_]+|api_\d{3}|overloaded|prompt_too_long|policy_refusal|output_too_long|billing|model_unavailable|network|exit_\d+|unnamed_[a-z_]+_t-?\d+_len-?\d+_[a-z0-9_-]+)/.exec(msg)?.[1];
     const kind = named ? `claude_${named}` : /claude failed: .*limit/i.test(msg) ? "claude_usage_limit" : /claude failed: .*authenticate/i.test(msg) ? "claude_login" : msg.startsWith("claude") ? "claude_other" : err?.status ? `fanvue_${err.status}` : "other";
     console.log(`error kind: ${kind}`);
     // The status of a Fanvue error is passed on (400 means he cannot be contacted); the message may name the fan, so it stays private.
