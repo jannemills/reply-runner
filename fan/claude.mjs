@@ -32,16 +32,19 @@ export function runClaude({ prompt, model, system, schema, effort = "low", workD
     const child = spawn(
       "claude",
       ["-p", "--output-format", "json", "--effort", effort, "--strict-mcp-config", "--setting-sources", "", "--no-session-persistence", ...args],
-      { cwd, env: { PATH, HOME, CLAUDE_CODE_OAUTH_TOKEN }, stdio: ["pipe", "pipe", "ignore"] },
+      { cwd, env: { PATH, HOME, CLAUDE_CODE_OAUTH_TOKEN }, stdio: ["pipe", "pipe", "pipe"] },
     );
     let out = "";
+    let err = "";
     child.stdout.on("data", (chunk) => (out += chunk));
+    // Review, 26 Nov 2026: jobs failed with no visible cause. stderr is read but never printed: only a fixed category is taken from it.
+    child.stderr.on("data", (chunk) => (err = (err + chunk).slice(-4000)));
     child.on("error", reject);
     child.on("close", (code) => {
       try {
         resolve(JSON.parse(out));
       } catch {
-        reject(new Error(`claude exited with code ${code} and no JSON result`));
+        reject(new Error(`claude failed: ${category(err) ?? `exit_${Number(code) || 0}`}`));
       }
     });
     child.stdin.end(prompt);
@@ -91,13 +94,24 @@ async function runWithApi(prompt, options) {
   return { is_error: true, result: "Agent SDK ended without a result" };
 }
 
+/** A fixed word for a known Claude failure in a text, or null. The text itself is never passed on: it could quote the chat. */
+export function category(text) {
+  const t = String(text ?? "");
+  if (/prompt is too long|context (window|length)|too many tokens/i.test(t)) return "prompt_too_long";
+  if (/max(imum)? turns/i.test(t)) return "error_max_turns";
+  if (/overloaded/i.test(t)) return "overloaded";
+  const api = /API Error: (\d{3})/.exec(t)?.[1];
+  if (api) return `api_${api}`;
+  if (/timed? ?out|ETIMEDOUT|ECONNRESET|socket hang up/i.test(t)) return "network";
+  return null;
+}
+
 function failure(result) {
   // Only known failures are named: other result text could quote the chat.
   // Review, 26 Nov 2026: the CLI's result subtype (e.g. error_max_turns) and an API status code are fixed words, never chat text.
   const subtype = /^error_[a-z_]+$/.test(String(result.subtype ?? "")) ? result.subtype : null;
-  const api = /API Error: (\d{3})/.exec(String(result.result ?? ""))?.[1];
-  const overloaded = /overloaded/i.test(String(result.result ?? ""));
-  if (subtype || api || overloaded) return new Error(`claude failed: ${subtype ?? (api ? `api_${api}` : "overloaded")}`);
+  const named = subtype ?? category(result.result);
+  if (named) return new Error(`claude failed: ${named}`);
   const known = /authenticate|limit|^API rejected the model or request$|^API structured output retries exhausted$|^Agent SDK ended without a result$/i.test(result.result ?? "") ? result.result.slice(0, 120) : "no usable answer";
   return new Error(`claude failed: ${known}`);
 }
