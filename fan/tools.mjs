@@ -25,7 +25,7 @@ import {
 } from "./chat.mjs";
 import { withTypo } from "./typo.mjs";
 import { MAX_VOICE_WORDS, speak, spokenText, voiceName, wordCount } from "./voice.mjs";
-import { buildPool, poolForFan, isFirstBuyer, freeTalkRun, sincePaidRun, MAX_FREE_STREAK, VIP_MAX_FREE_STREAK, FREE_PER_HOUR, VIP_FREE_PER_HOUR, notBuyingRefusal, paidCandidates, photoRefusal, priceAnchorUsd, pickPack, pickPhoto, profileText, salesHistory, turnsAwayMoney, sendsHimAway, saysGoodbye, raisesPaying, saysCannotPay } from "./sales.mjs";
+import { packRefusal, buildPool, poolForFan, isFirstBuyer, freeTalkRun, sincePaidRun, MAX_FREE_STREAK, VIP_MAX_FREE_STREAK, FREE_PER_HOUR, VIP_FREE_PER_HOUR, notBuyingRefusal, paidCandidates, photoRefusal, priceAnchorUsd, pickPack, pickPhoto, profileText, salesHistory, turnsAwayMoney, sendsHimAway, saysGoodbye, raisesPaying, saysCannotPay } from "./sales.mjs";
 
 const none = { type: "object", properties: {}, additionalProperties: false };
 
@@ -807,6 +807,8 @@ export class JobTools {
     const his = messages.filter((m) => m.sender.uuid === this.fanUuid).map((m) => Date.parse(m.sentAt)).filter(Boolean);
     if (his.length && messages.length < SALES_HISTORY_MESSAGES) history.chatStartAt = Math.min(...his);
     history.freeHourLimit = this.vip ? VIP_FREE_PER_HOUR : FREE_PER_HOUR;
+    history.vip = this.vip;
+    history.thanks = this.thanks;
     history.payIntent = raisesPaying(newFanMessages(messages, this.fanUuid));
     const ever = await this.#everSentMedia();
     // A locked photo he never bought can be offered again as paid (owner, 26 Nov 2026), never free; salesHistory keeps the last 24 h blocked.
@@ -1044,7 +1046,7 @@ export class JobTools {
     history.paymentHold = paymentHold(await api.getNotes(fanUuid), this.now());
     const firstBuyer = isFirstBuyer(await api.getFanInsights(fanUuid).catch(() => null), history, this.vip);
     // Same waiting time as a single paid photo (no open-offer limit since 19 Nov 2026); never a pack as his first offer.
-    const refusal = photoRefusal("pack", history, this.now(), rules.minPriceUsd, rules, firstBuyer);
+    const refusal = photoRefusal("pack", history, this.now(), rules.minPriceUsd, rules, firstBuyer) ?? packRefusal(history, priceUsd);
     if (refusal) return refuse(refusal);
     const pool = await this.#getPool();
     const pack = pool && pickPack(pool, history, count, args.nude === true, this.random, this.vip || history.bought > 0);

@@ -28,6 +28,30 @@ export const NEW_CHAT_MINUTES = 10;
 export const FORMAT_SWITCH_HOURS = 6;
 // Owner, 26 Nov 2026: "we should be able to send same ppv photos if they were not bought before": an unbought paid photo can be offered again after this.
 export const REOFFER_COOLDOWN_HOURS = 24;
+// Review after the 27 Nov fixes (11:14-18:05 UTC): a fan got 2 free photos within 12 minutes of a locked $5 pack he had not opened,
+// which teaches him to wait for free ones. No free photo while a paid offer from the last FREE_AFTER_UNBOUGHT_MINUTES is unopened.
+export const FREE_AFTER_UNBOUGHT_MINUTES = 30;
+// Same review: non-VIP low spenders left $5-7 packs of 4 locked (one got 4 packs in 3 h and bought only a $4 single, twice tipping
+// instead of unlocking); packs sold to the VIP. A non-VIP gets singles until he has bought in this chat, and a pack then costs at most
+// PACK_OVER_SINGLE_USD above his last bought single.
+export const PACK_OVER_SINGLE_USD = 2;
+export const MIN_PACK_USD = 5;
+
+/** Packs need a VIP or a fan who bought in this chat. */
+export const packsAllowed = (h) => Boolean(h.vip) || (h.bought ?? 0) > 0;
+
+/** Why a pack at this price may not go out (on top of photoRefusal), or null when it may. */
+export function packRefusal(h, priceUsd) {
+  if (h.vip) return null;
+  if (!packsAllowed(h))
+    return "He has not bought anything in this chat yet. No pack: packs of locked photos stay unopened for fans like him. Send one paid single instead (send_photo kind paid, small and easy, his own words as the caption).";
+  if (h.lastBoughtSingleUsd != null) {
+    const cap = Math.max(MIN_PACK_USD, h.lastBoughtSingleUsd + PACK_OVER_SINGLE_USD);
+    if (priceUsd > cap)
+      return `His last single sold at $${h.lastBoughtSingleUsd}. A pack for him costs at most $${cap}: bigger jumps stayed locked. Price it lower, or send a single at his price.`;
+  }
+  return null;
+}
 
 // Owner, 27 Nov 2026 ("this should never happen again", "our most important part is selling"): a fan asked what he gets if he pays for
 // 1-3 months and heard "you don't need to pay anything"; hot fans were told to go to sleep. These checks run on every reply, in code.
@@ -241,13 +265,15 @@ export function photoRefusal(kind, h, now, priceUsd, rules, firstBuyer = false) 
   // Owner, 10 Nov 2026: a fan who never paid gets a few free photos, then a small first unlock instead of more free ones.
   // Owner, 17 Nov 2026: no fixed price or format for the first unlock any more; the model decides it per fan (small and easy).
   if (firstBuyer && kind === "free" && rules.freeBeforeFirstBuy != null && h.freePhotos >= rules.freeBeforeFirstBuy)
-    return `He has had ${h.freePhotos} free photos and never paid. No more free ones: his next photo is his small, easy paid first unlock (a single or a small pack, priced for him).`;
+    return `He has had ${h.freePhotos} free photos and never paid. No more free ones: his next photo is his small, easy paid first unlock (one paid single, priced for him).`;
   const isPack = kind === "pack";
   if (kind === "pack") kind = "paid";
   if (kind === "free" && h.freeStreak >= (h.freeStreakLimit ?? MAX_FREE_STREAK))
     return `He has had ${h.freeStreak} free photo messages in a row with no paid offer after them. No more free ones now: send a small paid single of what he asked for (at or below his last price), then a free bonus when he buys.`;
   if (kind === "free" && h.freeLastHour >= (h.freeHourLimit ?? FREE_PER_HOUR))
     return `He has had ${h.freeLastHour} free photos in the last hour with no paid offer after them. No more free ones now: if he is warm, this photo is the priced step (send_photo kind paid or send_ppv_pack, his own words as the caption). If a paid offer is refused too, answer in words only.`;
+  if (kind === "free" && !h.thanks && (h.unboughtRun ?? 0) >= 1 && h.lastPaidAt && now - h.lastPaidAt < FREE_AFTER_UNBOUGHT_MINUTES * 60_000)
+    return `Your paid offer from ${Math.max(1, Math.round((now - h.lastPaidAt) / 60_000))} min ago is still locked. No free photo now: a free one next to it teaches him to wait. Answer him in words and tease what is in the locked one, without describing it.`;
   if (kind === "free") {
     if (h.lastFreeAt && now - h.lastFreeAt < rules.freePhotoDays * DAY_MS)
       return `He got a free photo in the last ${rules.freePhotoDays} days. No new one yet.`;
@@ -275,7 +301,7 @@ export function photoRefusal(kind, h, now, priceUsd, rules, firstBuyer = false) 
   // Review, 24 Nov 2026 (evening): $5 then $4 six minutes apart, $4 then $3 in three, $8 then $7 in four, none bought. A paid offer he has not bought
   // blocks the next one for UNBOUGHT_GAP_MINUTES: he has to look at it first.
   if (!h.payIntent && (h.unboughtRun ?? 0) >= 1 && h.lastPaidAt && now - h.lastPaidAt < UNBOUGHT_GAP_MINUTES * 60_000)
-    return `Your last paid offer went out ${Math.max(1, Math.round((now - h.lastPaidAt) / 60_000))} min ago and he has not bought it. No second paid offer within ${UNBOUGHT_GAP_MINUTES} minutes: let him look at it. Answer him in words, or a free photo if the rules allow, and mention the locked one only if he brings it up.`;
+    return `Your last paid offer went out ${Math.max(1, Math.round((now - h.lastPaidAt) / 60_000))} min ago and he has not bought it. No second paid offer within ${UNBOUGHT_GAP_MINUTES} minutes: let him look at it. Answer him in words and mention the locked one only if he brings it up.`;
   if (!h.payIntent && (h.unboughtRun ?? 0) >= MAX_UNBOUGHT_PAID_RUN && h.lastPaidAt && now - h.lastPaidAt < UNBOUGHT_PAUSE_HOURS * 3600_000 && !(h.lastFanAt && now - h.lastFanAt < LIVE_FAN_MINUTES * 60_000))
     return `He has ${h.unboughtRun} paid offers in a row that he has not bought. No new paid offer for now: talk with him, or give a free photo or an "in the moment" set, and mention the locked one only if he brings it up. When the pause ends, change the format (a pack with a free preview instead of a single, or a smaller price), not more of the same.`;
   // Review, 26 Nov 2026 (superior-flamingo-529): 7 unbought singles at $5-7 in four hours, and he said twice the photos only showed her back.
@@ -283,7 +309,12 @@ export function photoRefusal(kind, h, now, priceUsd, rules, firstBuyer = false) 
   // Only within FORMAT_SWITCH_HOURS of the last offer, and never a dead end: once both kinds went unbought, either may go.
   const unboughtSingles = (h.unboughtRun ?? 0) - (h.unboughtPacks ?? 0);
   const fresh = h.lastPaidAt && now - h.lastPaidAt < FORMAT_SWITCH_HOURS * 3600_000;
-  if (fresh && !isPack && unboughtSingles >= MAX_UNBOUGHT_PAID_RUN && (h.unboughtPacks ?? 0) < MAX_UNBOUGHT_PAID_RUN)
+  // A fan who may not get packs yet (packRefusal) is never told to send one: his next single is cheaper instead, or the lowest price.
+  if (fresh && !isPack && unboughtSingles >= MAX_UNBOUGHT_PAID_RUN && (h.unboughtPacks ?? 0) < MAX_UNBOUGHT_PAID_RUN && !packsAllowed(h)) {
+    const last = h.lastUnboughtSingleUsd;
+    if (last != null && last > rules.minPriceUsd && priceUsd >= last)
+      return `He has not bought your last ${unboughtSingles} paid singles. Not the same again: ask him what he wants to see and match it with one cheaper single (below $${last}; nude: true if he wants more skin).`;
+  } else if (fresh && !isPack && unboughtSingles >= MAX_UNBOUGHT_PAID_RUN && (h.unboughtPacks ?? 0) < MAX_UNBOUGHT_PAID_RUN)
     return `He has not bought your last ${unboughtSingles} paid singles. Not another single: change the format (send_ppv_pack with a free preview), or ask him what he wants to see and match it (nude: true if he wants more skin). Never more of the same.`;
   if (fresh && isPack && (h.unboughtPacks ?? 0) >= MAX_UNBOUGHT_PAID_RUN && unboughtSingles < MAX_UNBOUGHT_PAID_RUN)
     return `He has not bought your last ${h.unboughtPacks} packs. Not another pack: try one small single of exactly what he asked for, at a lower price.`;
