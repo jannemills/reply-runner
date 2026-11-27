@@ -1,7 +1,8 @@
 // Owner, 15 Nov 2026: about one message in eight carries ONE tiny, human typo: an extra character
 // (a doubled letter or a neighbouring key) or one wrong character (a neighbouring key).
 // Never in prices, numbers, links, @names or short messages; only inside one ordinary word, never its first letter.
-export const TYPO_CHANCE = 1 / 8;
+// fv-17 review, 27 Nov 2026: one in eight read as a bot to new fans (two asked if she is AI); now one in twenty.
+export const TYPO_CHANCE = 1 / 20;
 
 const NEAR = {
   q: "wa", w: "qes", e: "wrd", r: "etf", t: "ryg", y: "tuh", u: "yij", i: "uok", o: "ipl", p: "ol",
