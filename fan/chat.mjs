@@ -138,7 +138,11 @@ export function lowSignalKind(text) {
   return GREETING.test(t) ? "greeting" : null;
 }
 
-export const mentionsAi = (text) => /(^|[^\p{L}])(ai|a\.i\.|ej ?aj|vestack|veštačk)/iu.test(text);
+// 27 Nov 2026: a bare "ai" with no end boundary refused every Romanian or Italian line with "ai" or a word starting with it.
+export const mentionsAi = (text) =>
+  /(^|[^\p{L}])(a\.i\.|ej ?aj(?!\p{L})|vestack|veštačk|vještačk|artificial\s+intellig|ai[\s-]?(bot|model|generat|chat|slik|foto|photo|pic(?!\p{L})))/iu.test(text) ||
+  /(^|[^\p{L}])AI(?!\p{L})/u.test(text) ||
+  /(^|[^\p{L}])(sam|nisam|nisi|kakav|kakva|bre|je|nije|neki|neka|not|an|i'm|im)\s+(an\s+)?ai(?!\p{L})/iu.test(text);
 
 /** The reply must never speak of a team, manager or assistant (same check as the Telegram auto-reply). */
 export const mentionsTeam = (text) =>

@@ -29,6 +29,35 @@ export const FORMAT_SWITCH_HOURS = 6;
 // Owner, 26 Nov 2026: "we should be able to send same ppv photos if they were not bought before": an unbought paid photo can be offered again after this.
 export const REOFFER_COOLDOWN_HOURS = 24;
 
+// Owner, 27 Nov 2026 ("this should never happen again", "our most important part is selling"): a fan asked what he gets if he pays for
+// 1-3 months and heard "you don't need to pay anything"; hot fans were told to go to sleep. These checks run on every reply, in code.
+const flat = (t) => String(t ?? "").toLowerCase().normalize("NFD").replace(/\p{M}/gu, "").replace(/đ/g, "dj").replace(/ß/g, "ss").replace(/[’`]/g, "'");
+const PAY_WORDS = "(?:uplac|uplat|plat|plac|kupi|kupuj|otkljuc|trosi|pretplat|pay|spend|subscrib|buy|unlock|tip|zahl|bezahl|kauf|freischalt|abonn|pagar|spender|abbonar|sblocc|comprar|cumper|abonez|debloch|gastar|suscrib|desbloq)";
+const TURNS_AWAY = [
+  `\\bne (?:moras|treba|mora)\\b[^.?!]{0,25}\\b${PAY_WORDS}`,
+  `\\b(?:no need|(?:do not|don'?t) (?:need|have) to|needn'?t)\\b[^.?!]{0,25}\\b${PAY_WORDS}`,
+  `\\b(?:musst|brauchst) (?:du )?(?:nichts?|nicht|kein\\w*)\\b[^.?!]{0,25}${PAY_WORDS}`,
+  `\\bnon (?:devi|serve|c'e bisogno(?: di)?)\\b[^.?!]{0,25}\\b${PAY_WORDS}`,
+  `\\bnu (?:trebuie|e nevoie)\\b[^.?!]{0,25}\\b${PAY_WORDS}`,
+  `\\bno (?:tienes que|hace falta|necesitas)\\b[^.?!]{0,25}\\b${PAY_WORDS}`,
+  "\\bne treba mi (?:tvoj novac|tvoje pare)\\b",
+].map((r) => new RegExp(r));
+/** Her line tells him he does not need to pay, spend or subscribe. */
+export const turnsAwayMoney = (line) => TURNS_AWAY.some((r) => r.test(flat(line)));
+
+const SENDS_AWAY = /\b(idi (na )?spava(j|nje|ti)|lezi da spavas|odi spavaj|spavaj sad|odmori se|sacuvaj (malo )?energij|(lep|lijep) dan van|go (to )?(sleep|bed)|get (some )?(sleep|rest)|go (and )?rest|enjoy your (day|night|evening)|outside this chat|geh (jetzt )?(schlafen|ins bett)|vai a (dormire|letto|riposare)|du-?te (la culcare|si te odihnesti|sa dormi)|(vete|ve) a (dormir|descansar))\b/;
+/** Her line sends him away from the chat. */
+export const sendsHimAway = (line) => SENDS_AWAY.test(flat(line));
+
+const GOODBYE = /\b(laku noc|odoh|idem (sad|da|na|spavat)|spavam|spava mi se|bye|good ?night|gn|going to (bed|sleep)|gotta go|have to go|noapte buna|gute nacht|buona ?notte|vado a|buenas noches|me voy|na posao|radim sad|cujemo se|vidimo se)\b/;
+export const saysGoodbye = (fanText) => GOODBYE.test(flat(fanText));
+
+const RAISES_PAYING = /\b(uplati\w*|uplacu\w*|platic\w*|platio bih|da platim|pretplat\w*|koliko (kosta|ce me|para|da platim)|cijena|cena|how much (is|for|do|does|would)|what('?s| is) the price|i('?ll| will) pay|can i pay|want to pay|if i (pay|subscribe)|tip you|send you (a )?(tip|money)|was kostet|ich (be)?zahle|quanto costa|quanto vuoi|cat costa|cuanto (cuesta|vale))\b/;
+const CANNOT_PAY = /\b(nemam|ne mogu|necu|ne placam|skupo|preskupo|can'?t|cannot|won'?t|don'?t have|no money|too expensive|broke|not paying|kein geld|zu teuer|non posso|troppo caro|nu am bani|prea scump|no puedo|muy caro|blokiran\w*|blocked|declined)\b/;
+/** He brought up paying, a price, subscribing or tipping, and not to say he cannot or will not. */
+export const raisesPaying = (fanText) => RAISES_PAYING.test(flat(fanText)) && !CANNOT_PAY.test(flat(fanText));
+export const saysCannotPay = (fanText) => CANNOT_PAY.test(flat(fanText));
+
 const isAiRefurbished = (m) => /ai image/i.test(m.name ?? "");
 
 /** Ready images from a vault folder, minus AI-refurbished files, posted media and media held for scheduled mass messages. */
@@ -227,7 +256,9 @@ export function photoRefusal(kind, h, now, priceUsd, rules, firstBuyer = false) 
   // Review, 27 Nov 2026 (12 h, 0 sales): hot new fans who already had their free photos hit this block and the free cap at once, so nothing could
   // go out and the reply said "patience" (soulful-equation-653 left). Once he has had a free photo and answered it, the paid step may follow (owner pattern).
   const reacted = h.freePhotos > 0 && h.lastFreeAt && h.lastFanAt && h.lastFanAt > h.lastFreeAt;
-  if (!h.bought && !reacted && h.chatStartAt && now - h.chatStartAt < NEW_CHAT_MINUTES * 60_000)
+  // No dead end: with no free photo left for him, or when he raised paying himself, the paid step is always open.
+  const freeUsedUp = rules.freeBeforeFirstBuy != null && h.freePhotos >= rules.freeBeforeFirstBuy;
+  if (!h.bought && !reacted && !freeUsedUp && !h.payIntent && h.chatStartAt && now - h.chatStartAt < NEW_CHAT_MINUTES * 60_000)
     return `This chat started ${Math.max(1, Math.round((now - h.chatStartAt) / 60_000))} min ago. No paid offer in the first ${NEW_CHAT_MINUTES} minutes: get to know him first (a free photo only on a real sign of interest).`;
   if (!Number.isInteger(priceUsd) || priceUsd < rules.minPriceUsd || priceUsd > rules.maxPriceUsd)
     return `Choose a whole-dollar price from ${rules.minPriceUsd} to ${rules.maxPriceUsd}.`;
@@ -243,9 +274,9 @@ export function photoRefusal(kind, h, now, priceUsd, rules, firstBuyer = false) 
     return `He has not bought your last single at $${h.lastUnboughtSingleUsd}. A new single costs at most that: raising the price on an unbought offer does not sell.`;
   // Review, 24 Nov 2026 (evening): $5 then $4 six minutes apart, $4 then $3 in three, $8 then $7 in four, none bought. A paid offer he has not bought
   // blocks the next one for UNBOUGHT_GAP_MINUTES: he has to look at it first.
-  if ((h.unboughtRun ?? 0) >= 1 && h.lastPaidAt && now - h.lastPaidAt < UNBOUGHT_GAP_MINUTES * 60_000)
+  if (!h.payIntent && (h.unboughtRun ?? 0) >= 1 && h.lastPaidAt && now - h.lastPaidAt < UNBOUGHT_GAP_MINUTES * 60_000)
     return `Your last paid offer went out ${Math.max(1, Math.round((now - h.lastPaidAt) / 60_000))} min ago and he has not bought it. No second paid offer within ${UNBOUGHT_GAP_MINUTES} minutes: let him look at it. Answer him in words, or a free photo if the rules allow, and mention the locked one only if he brings it up.`;
-  if ((h.unboughtRun ?? 0) >= MAX_UNBOUGHT_PAID_RUN && h.lastPaidAt && now - h.lastPaidAt < UNBOUGHT_PAUSE_HOURS * 3600_000 && !(h.lastFanAt && now - h.lastFanAt < LIVE_FAN_MINUTES * 60_000))
+  if (!h.payIntent && (h.unboughtRun ?? 0) >= MAX_UNBOUGHT_PAID_RUN && h.lastPaidAt && now - h.lastPaidAt < UNBOUGHT_PAUSE_HOURS * 3600_000 && !(h.lastFanAt && now - h.lastFanAt < LIVE_FAN_MINUTES * 60_000))
     return `He has ${h.unboughtRun} paid offers in a row that he has not bought. No new paid offer for now: talk with him, or give a free photo or an "in the moment" set, and mention the locked one only if he brings it up. When the pause ends, change the format (a pack with a free preview instead of a single, or a smaller price), not more of the same.`;
   // Review, 26 Nov 2026 (superior-flamingo-529): 7 unbought singles at $5-7 in four hours, and he said twice the photos only showed her back.
   // After MAX_UNBOUGHT_PAID_RUN unbought offers of one kind, the next one must be the other kind.

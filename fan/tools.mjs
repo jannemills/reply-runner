@@ -25,7 +25,7 @@ import {
 } from "./chat.mjs";
 import { withTypo } from "./typo.mjs";
 import { MAX_VOICE_WORDS, speak, spokenText, voiceName, wordCount } from "./voice.mjs";
-import { buildPool, poolForFan, isFirstBuyer, freeTalkRun, sincePaidRun, MAX_FREE_STREAK, VIP_MAX_FREE_STREAK, FREE_PER_HOUR, VIP_FREE_PER_HOUR, notBuyingRefusal, paidCandidates, photoRefusal, priceAnchorUsd, pickPack, pickPhoto, profileText, salesHistory } from "./sales.mjs";
+import { buildPool, poolForFan, isFirstBuyer, freeTalkRun, sincePaidRun, MAX_FREE_STREAK, VIP_MAX_FREE_STREAK, FREE_PER_HOUR, VIP_FREE_PER_HOUR, notBuyingRefusal, paidCandidates, photoRefusal, priceAnchorUsd, pickPack, pickPhoto, profileText, salesHistory, turnsAwayMoney, sendsHimAway, saysGoodbye, raisesPaying, saysCannotPay } from "./sales.mjs";
 
 const none = { type: "object", properties: {}, additionalProperties: false };
 
@@ -278,7 +278,7 @@ export class JobTools {
   missedPhotoAsk = false;
   notBuying = false; // owner, 6 Nov 2026: the model judged he will never buy and the hard limits allowed it
   alerts = []; // { kind: "needs_person" | "offer", reason }
-  #busy = false;
+  #queue = Promise.resolve();
   #pool = null;
   #everSent = null;
   #locked = null; // paid photos he was offered and never bought (owner, 26 Nov 2026)
@@ -330,6 +330,8 @@ export class JobTools {
   async call(name, args) {
     if (this.research && !RESEARCH_TOOLS.some((t) => t.name === name)) return refuse("Not available in this chat.");
     if (this.notBuying && name.startsWith("send_")) return refuse("You stopped answering him. Send nothing.");
+    if (["send_photo", "send_ppv_pack", "send_moment_photos", "send_selfie"].includes(name)) this.photoTried = true;
+    if (name === "send_ppv_pack" || (name === "send_photo" && args.kind === "paid")) this.paidTried = true;
     switch (name) {
       case "read_chat": {
         // Owner, 17 Nov 2026: a $0 fan's chat is read short (15, at most 40) unless the model asks for the whole chat with deep.
@@ -344,7 +346,7 @@ export class JobTools {
         await this.api.putNotes(this.fanUuid, mergeNotes(await this.api.getNotes(this.fanUuid), String(args.text ?? "")));
         return ok("Saved.");
       case "send_reply":
-        return this.#exclusive("You already replied.", () => this.#sendReply(String(args.text ?? "")), this.replied);
+        return this.#exclusive("You already replied.", () => this.#sendReply(String(args.text ?? "")), () => this.replied);
       case "hand_over": {
         const reason = String(args.reason ?? "");
         if (this.vip) {
@@ -395,19 +397,19 @@ export class JobTools {
         return ok(`${profileText(insights, history, this.rules)}\n${photos}${holdText}`);
       }
       case "send_photo":
-        return this.#exclusive("One photo per reply. Stop here.", () => this.#sendPhoto(args), this.photoSent);
+        return this.#exclusive("One photo per reply. Stop here.", () => this.#sendPhoto(args), () => this.photoSent);
       case "send_ppv_pack":
-        return this.#exclusive("One photo message per reply. Stop here.", () => this.#sendPack(args), this.photoSent);
+        return this.#exclusive("One photo message per reply. Stop here.", () => this.#sendPack(args), () => this.photoSent);
       case "send_moment_photos":
         return this.#exclusive(
           this.vip ? `At most ${VIP_MOMENT_SETS_PER_REPLY} sets per reply. Stop here.` : "One free photo message from the sets per reply. Stop here.",
           () => this.#sendMomentPhotos(args),
-          this.momentSets >= (this.vip ? VIP_MOMENT_SETS_PER_REPLY : MOMENT_SETS_PER_REPLY),
+          () => this.momentSets >= (this.vip ? VIP_MOMENT_SETS_PER_REPLY : MOMENT_SETS_PER_REPLY),
         );
       case "send_selfie":
-        return this.#exclusive("One photo message per reply. Stop here.", () => this.#sendSelfie(args), this.photoSent || this.momentSent);
+        return this.#exclusive("One photo message per reply. Stop here.", () => this.#sendSelfie(args), () => this.photoSent || this.momentSent);
       case "send_tip_photos":
-        return this.#exclusive("One photo message per reply. Stop here.", () => this.#sendTipPhotos(args), this.photoSent || this.momentSent);
+        return this.#exclusive("One photo message per reply. Stop here.", () => this.#sendTipPhotos(args), () => this.photoSent || this.momentSent);
       case "ready_for_offer":
         if (this.noSale) return refuse("He is sold nothing after a refund or chargeback. Keep the chat warm and friendly.");
         this.alerts.push({ kind: "offer", reason: String(args.reason ?? "") });
@@ -444,14 +446,11 @@ export class JobTools {
   }
 
   /** Runs one send at a time, and only once: a repeated call (a client retry during the hold) must not send it twice. */
+  // 27 Nov 2026: a send called alongside another was refused as "already sent" and the photo or the line was lost. Calls now wait their turn.
   async #exclusive(message, run, alreadyDone) {
-    if (alreadyDone || this.#busy) return refuse(message);
-    this.#busy = true;
-    try {
-      return await run();
-    } finally {
-      this.#busy = false;
-    }
+    const turn = this.#queue.then(() => (alreadyDone() ? refuse(message) : run()));
+    this.#queue = turn.catch(() => {});
+    return turn;
   }
 
   async readChat(wanted) {
@@ -542,7 +541,8 @@ export class JobTools {
     if (hold > 0) await this.#wait(hold);
 
     // He wrote again or someone answered by hand while Claude was writing: this reply is out of date.
-    if (newestPersonal(await api.fetchMessages(fanUuid))?.uuid !== this.newestUuid) {
+    const latest = await api.fetchMessages(fanUuid);
+    if (newestPersonal(latest)?.uuid !== this.newestUuid) {
       this.wroteAgain = true;
       return refuse("The chat changed. Do not reply. Stop here.");
     }
@@ -550,10 +550,39 @@ export class JobTools {
     const text = finalText(reply);
     if (!text) return refuse("Refused: no links, no mention of AI, and at most 600 characters. Rewrite it without those.");
 
+    // Owner, 27 Nov 2026: money is never turned away and a fan who is writing is never sent away.
+    const selling = !this.thanks && !this.noSale && !this.research;
+    if (selling) {
+      const his = newFanMessages(latest, fanUuid);
+      const held = saysCannotPay(his) || Boolean(paymentHold(await api.getNotes(fanUuid).catch(() => null), this.now()));
+      if (!held && turnsAwayMoney(text))
+        return refuse(
+          "Not sent: never tell him he does not need to pay, spend, subscribe or unlock. Say yes warmly and give him the paid step: send_ppv_pack or send_photo kind paid with your yes as its caption, then at most one short line.",
+        );
+      if (sendsHimAway(text) && !saysGoodbye(his) && (this.awayRefusals ??= 0) < 3) {
+        this.awayRefusals += 1;
+        return refuse("Not sent: he is not leaving, so never send him to sleep, to rest or to enjoy his day. Keep him in the chat and move to the paid step (send the photo first), or ask one thing that pulls him closer.");
+      }
+      if (!held && !this.followUp && !this.paidTried && raisesPaying(his) && (this.payRefusals ??= 0) < 2) {
+        this.payRefusals += 1;
+        return refuse(
+          "Not sent: he just brought up paying. This is the sale. Call send_ppv_pack or send_photo kind paid NOW, with your warm yes as its caption. Only after that call (sent or refused) use send_reply, and say nothing against paying.",
+        );
+      }
+      // A sell reminder fired and no photo tool was called since: remind once more, so the line does not go out in place of the offer.
+      if (this.offerOwed && !this.photoTried && !this.followUp && !this.offerReminded) {
+        this.offerReminded = true;
+        return refuse(
+          "Not sent: you have not called a photo tool yet. Call send_photo or send_ppv_pack now, with this line as its caption. Only if he is sad, worried or saying goodnight, call send_reply again and it will go out.",
+        );
+      }
+    }
+
     // He asked to see her and she has photos for him: the photo goes out in this reply, not only words (owner, 6 Nov 2026).
     if (!this.photoSent && !this.followUp && !this.thanks && !this.noSale && !this.research && (await this.#photoAskOpen())) {
       if (!this.photoNudged) {
         this.photoNudged = true;
+        this.offerOwed = true;
         return refuse(
           "Not sent: he asked to see you and you have photos for him. Answer his ask with the photo itself, the way the owner sells: " +
             "send_photo (paid at his usual price, or free if he has had nothing warm from you yet) or send_ppv_pack, with your words as its short caption. " +
@@ -572,6 +601,7 @@ export class JobTools {
         const history = await this.#history(chat);
         if (isFirstBuyer(await api.getFanInsights(fanUuid).catch(() => null), history, this.vip)) {
           this.freeTalkNudged = true;
+        this.offerOwed = true;
           return refuse(
             `Not sent: you have written ${limit}+ text replies to him with no photo, and he has never paid. Free talk is what he came for; more of it teaches him not to pay. ` +
               "Turn his own last words into the caption of ONE small paid single (send_photo kind paid, small and easy, priced for him): call send_photo NOW, before any send_reply, with your line as its caption. Only if it is refused, send_reply with words. " +
@@ -597,6 +627,7 @@ export class JobTools {
         const spentBefore = (insights?.spending?.total?.netTotal ?? 0) > 0 || history.bought > 0;
         if (!photoRefusal("pack", history, this.now(), this.rules.minPriceUsd, this.rules, false)) {
           this.buyerTalkNudged = true;
+        this.offerOwed = true;
           await api.putNotes(fanUuid, withBuyerNudge(notesNow, this.now())).catch(() => {});
           const step = spentBefore
             ? "one priced step priced for him: send_photo kind paid or send_ppv_pack with a personal caption made of his own words (for a past tipper the tip line fits too)"
@@ -723,6 +754,7 @@ export class JobTools {
     const his = messages.filter((m) => m.sender.uuid === this.fanUuid).map((m) => Date.parse(m.sentAt)).filter(Boolean);
     if (his.length && messages.length < SALES_HISTORY_MESSAGES) history.chatStartAt = Math.min(...his);
     history.freeHourLimit = this.vip ? VIP_FREE_PER_HOUR : FREE_PER_HOUR;
+    history.payIntent = raisesPaying(newFanMessages(messages, this.fanUuid));
     const ever = await this.#everSentMedia();
     // A locked photo he never bought can be offered again as paid (owner, 26 Nov 2026), never free; salesHistory keeps the last 24 h blocked.
     if (ever) for (const u of ever) (this.#locked?.has(u) && !history.seen.has(u) ? history.offeredBefore : history.seen).add(u);

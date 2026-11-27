@@ -165,7 +165,7 @@ async function runAgentOnce({ model, system, prompt, toolNames, mcpUrl, mcpKey }
     allowedTools: toolNames.map((name) => `mcp__chat__${name}`),
     // Review, 26 Nov 2026: tool refusals (photo caps, announced photo, sell reminder) each use a turn; at 5 a $0 fan's job ran out
     // before anything was sent and failed every time for 3.5 hours. More room, still bounded.
-    maxTurns: /haiku/i.test(model) ? 6 : /sonnet/i.test(model) ? 9 : 12,
+    maxTurns: /haiku/i.test(model) ? 10 : /sonnet/i.test(model) ? 13 : 16, // 27 Nov: room for the sell checks
   });
   if (result.is_error) throw failure(result);
 }
