@@ -225,7 +225,8 @@ if (jobRes.status === 404) {
       api,
       fanUuid,
       newestUuid: newestPersonal(messages)?.uuid,
-      followUp: followUp || reengage || (!!engaged && !hasWritten), // no photos in these
+      followUp: followUp || reengage || (!!engaged && !hasWritten), // no photos in these...
+      freeHook: (reengage || !!engaged) && !hasWritten, // ...except one free photo or selfie as the hook for a fan who never wrote (owner, 28 Nov 2026)
       thanks,
       tipGift: thanks && !job.tip?.purchase, // a tip, not a purchase: the thank-you may carry free paid-stock photos (owner, 19 Nov 2026)
       noSale: !!job.noSale,
