@@ -3,7 +3,7 @@
 // unanswered), who supports the account, and it keeps the custom list of answered fans complete.
 // Never print ids or errors: this log is public.
 import { createApi } from "./fan/api.mjs";
-import { needsReply, newestPersonal, researchNeedsReply } from "./fan/chat.mjs";
+import { justJoined, needsReply, newestPersonal, researchNeedsReply } from "./fan/chat.mjs";
 
 const { WORKER_URL, JOB_SECRET } = process.env;
 const headers = { "x-job-secret": JOB_SECRET, "Content-Type": "application/json" };
@@ -51,10 +51,11 @@ if (res.status === 404) {
     }
     for (const fan of waiting) {
       if (skip.has(fan) || !inScope(fan)) continue;
-      const newest = newestPersonal(await api.fetchMessages(fan));
+      const messages = await api.fetchMessages(fan);
+      const newest = newestPersonal(messages);
       if (!newest || !needsReply([newest], fan)) continue;
       if (ctx.swept[fan] === newest.uuid && !retry.has(fan)) continue;
-      result.candidates.push({ fan, newest: newest.uuid });
+      result.candidates.push({ fan, newest: newest.uuid, ...(justJoined(messages) ? { fresh: true } : {}) });
     }
   } catch (err) {
     result.error ??= `catch-up: ${err.status ?? "failed"}`;

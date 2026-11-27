@@ -3,7 +3,7 @@
 // Never print the job, the chat or Claude's output: this log is public.
 import { createApi } from "./fan/api.mjs";
 import { FALLBACK, runAgent, runFilter } from "./fan/claude.mjs";
-import { answeredSince, freePhotoSince, herLastTypedAt, formatChat, isHandedOver, lowSignalKind, needsReply, newCreatorMessages, newFanMessages, newestPersonal, reactedTo, researchNeedsReply, splitNotes, stillNewest, unansweredRuns } from "./fan/chat.mjs";
+import { answeredSince, freePhotoSince, herLastTypedAt, formatChat, isHandedOver, justJoined, lowSignalKind, needsReply, newCreatorMessages, newFanMessages, newestPersonal, reactedTo, researchNeedsReply, splitNotes, stillNewest, unansweredRuns } from "./fan/chat.mjs";
 import { classifyPhoto, fanPhotoMessages } from "./fan/vision.mjs";
 import { startToolServer } from "./fan/mcp.mjs";
 import { JobTools, RESEARCH_TOOLS, TOOLS } from "./fan/tools.mjs";
@@ -233,7 +233,7 @@ if (jobRes.status === 404) {
       vip: !!job.vip,
       voice: !!job.voice && !isUsa, // owner, 21 Nov 2026: voice notes only for Serbian fans on VOICE_FAN_UUIDS
       trimChat: !!job.trimChat,
-      sendAt: followUp ? undefined : job.sendAt,
+      sendAt: followUp || (wrote && justJoined(messages)) ? undefined : job.sendAt, // a new fan's message is never held (owner, 28 Nov 2026)
       rules: job.rules,
       usaListUuid: job.usaListUuid,
       ignoreListUuid: job.ignoreListUuid,

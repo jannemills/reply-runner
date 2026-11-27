@@ -5,6 +5,10 @@ const isAutomatedOrBroadcast = (m) => m.type === "BROADCAST" || m.type.startsWit
 /** The newest message that a person wrote. Automations and mass messages don't count as answers. */
 export const newestPersonal = (newestFirst) => newestFirst.find((m) => !isAutomatedOrBroadcast(m));
 
+const WELCOME = /^AUTOMATED_(NEW_(FOLLOWER|SUBSCRIBER|FREE_TRIAL)|RE_?SUBSCRIBED)/;
+/** He followed, subscribed or came back in the last 48 hours (Fanvue's welcome automation says so): he is waiting right now (owner, 28 Nov 2026). */
+export const justJoined = (messages, now = Date.now()) => messages.some((m) => WELCOME.test(String(m.type ?? "")) && now - Date.parse(m.sentAt) < 48 * 3600_000);
+
 /** True when the newest personal message came from the fan. */
 export const needsReply = (newestFirst, fanUuid) => newestPersonal(newestFirst)?.sender.uuid === fanUuid;
 
