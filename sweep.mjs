@@ -98,6 +98,19 @@ if (res.status === 404) {
     result.error ??= `list sync: ${err.status ?? "failed"}`;
   }
 
+  // Owner, 28 Nov 2026: everyone who joins through a tracked link is kept in that link's custom list (fv-17).
+  try {
+    if (allFans) {
+      for (const { link, list } of ctx.linkLists ?? []) {
+        const onList = new Set(allFans.filter((f) => f.lists.includes(list)).map((f) => f.uuid));
+        const missing = (await api.listLinkJoiners(link)).filter((fan) => !onList.has(fan));
+        if (missing.length) await api.addToList(list, missing);
+      }
+    }
+  } catch (err) {
+    result.error ??= `link list: ${err.status ?? "failed"}`;
+  }
+
   // Who is online now (owner, 4 Nov 2026): the Worker sends a waiting follow-up the moment he comes online and may write
   // to him after a quiet spell. Polled here because presence webhooks may never arrive. Offline is reported only for the
   // fans the Worker watches.

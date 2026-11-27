@@ -154,6 +154,19 @@ export function createApi(token, base = process.env.FAN_API_URL || "https://api.
         await sleep(1000);
       }
     },
+    /** Everyone credited to this tracking link who subscribed or followed and still has an account (needs read:tracking_links). */
+    async listLinkJoiners(linkUuid) {
+      const joined = [];
+      let cursor = "";
+      for (let page = 0; page < 50; page++) {
+        const after = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
+        const body = await (await call(`/tracking-links/${linkUuid}/users?limit=100${after}`)).json();
+        for (const u of body.data) if (u.creditedLinkUuid === linkUuid && u.status && u.status !== "deleted") joined.push(u.uuid);
+        cursor = body.nextCursor;
+        if (!cursor) break;
+      }
+      return joined;
+    },
     async addToList(listUuid, userUuids) {
       for (let i = 0; i < userUuids.length; i += 100) {
         await call(`/chats/lists/custom/${listUuid}/members`, {
