@@ -285,7 +285,7 @@ export function photoRefusal(kind, h, now, priceUsd, rules, firstBuyer = false) 
   // No dead end: with no free photo left for him, or when he raised paying himself, the paid step is always open.
   const freeUsedUp = rules.freeBeforeFirstBuy != null && h.freePhotos >= rules.freeBeforeFirstBuy;
   if (!h.bought && !reacted && !freeUsedUp && !h.payIntent && h.chatStartAt && now - h.chatStartAt < NEW_CHAT_MINUTES * 60_000)
-    return `This chat started ${Math.max(1, Math.round((now - h.chatStartAt) / 60_000))} min ago. No paid offer in the first ${NEW_CHAT_MINUTES} minutes: get to know him first (a free photo only on a real sign of interest).`;
+    return `This chat started ${Math.max(1, Math.round((now - h.chatStartAt) / 60_000))} min ago. No paid offer in the first ${NEW_CHAT_MINUTES} minutes: get to know him first (a free photo is fine to spark his interest; the paid one waits for a real sign of interest).`;
   if (!Number.isInteger(priceUsd) || priceUsd < rules.minPriceUsd || priceUsd > rules.maxPriceUsd)
     return `Choose a whole-dollar price from ${rules.minPriceUsd} to ${rules.maxPriceUsd}.`;
   // Chat review, 14 Nov 2026: jumps of 20-50% right after a purchase sold 0 of 4. A single goes at most $5 (or 15%) above his last bought single.
