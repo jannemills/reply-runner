@@ -258,6 +258,50 @@ export const momentClaim = (text) =>
   /\b(upravo|ba[sš] sad|maloprije|ve[cć] jesam|just (took|made|shot|snapped)|took (it|this|one) (just )?(now|for you)|made (it|this|one) (just )?for you)\b|\b(slikala|uslikala|napravila) (sam )?(se |je |ovu |ovo )?(sad|upravo|za tebe|samo za tebe)\b/iu.test(String(text ?? ""));
 
 /**
+ * Sales history, 27 Nov 2026: "one more on me" followed by a locked set ended a buyer's evening, and "unlock or tip, whichever's easier"
+ * turned $7-10 unlocks into ~$5 tips eight times. A paid caption never calls the photo a gift or free, and never offers a tip instead.
+ * Returns the refusal text, or null when the caption may go.
+ */
+export function paidCaptionProblem(text) {
+  const t = String(text ?? "");
+  if (/\b(gift|bonus|on me|on the house|for free|free one|freebie|it'?s free|poklon\w*|bonus\w*|besplatn\w*|gratis|[cč]astim|regalo|geschenk|cadeau)\b/iu.test(t))
+    return "Not sent: this is a paid offer, but the caption calls it a gift, bonus or free. Never call a locked photo a gift (a buyer stopped after \"on me\" came locked). Give it his own words or a short tease and call it again.";
+  if (/\b(tip|tips|tipping|napojnic\w*|bak[sš]i[sš]\w*|propin\w*|mancia)\b/iu.test(t))
+    return "Not sent: a paid caption never mentions a tip (\"unlock or tip\" turned unlocks into smaller tips eight times). Leave tips out of it and call it again.";
+  return null;
+}
+
+const QUESTION_START = /^(which|where|what|how|when|why|who|do|did|does|are|were|is|was|have|has|will|would|can|could|tell me|koj\w*|gde|gdje|[sš]ta|kako|kad\w*|za[sš]to|ko|da li|jel|je l|jesi|ima[sš])\b/iu;
+/** A line that asks him something, with or without a question mark. */
+export const isQuestion = (text) => {
+  const t = String(text ?? "").trim();
+  if (t.includes("?")) return true;
+  return t.split(/(?<=[.!…])\s+|\.\.\.\s*/u).some((part) => QUESTION_START.test(part.trim().replace(/^[^\p{L}]+/u, "")));
+};
+
+const INTERVIEW_HOURS = 12;
+/**
+ * Sales history, 27 Nov 2026: the morning after the top spender bought three packs, the replier kept asking him about the photos and he
+ * wrote "Repetitive questions and behavior..." and stopped opening the chat. True when he bought within INTERVIEW_HOURS, her last two
+ * lines since that purchase were questions, and this line is one too.
+ */
+export function postBuyInterview(messages, fanUuid, now, text) {
+  if (!isQuestion(text)) return false;
+  const bought = messages
+    .filter((m) => m.sender?.uuid !== fanUuid && m.purchasedAt)
+    .map((m) => Date.parse(m.purchasedAt))
+    .filter(Boolean);
+  if (!bought.length) return false;
+  const lastBuy = Math.max(...bought);
+  if (now - lastBuy > INTERVIEW_HOURS * 3600_000) return false;
+  const hers = messages
+    .filter((m) => m.sender?.uuid !== fanUuid && m.text && Date.parse(m.sentAt) > lastBuy && !m.hasMedia)
+    .sort((a, b) => Date.parse(a.sentAt) - Date.parse(b.sentAt));
+  if (hers.length < 2) return false;
+  return hers.slice(-2).every((m) => isQuestion(m.text));
+}
+
+/**
  * He asks to see her: a photo, her face or body, "show me", "where are your photos", "I'll give you a gift for it".
  * Owner, 6 Nov 2026: a top spender asked for photos 8 times in a day and got only teasing; the owner then sold him $20 and
  * $25 photos within minutes. Serbian in Latin and Cyrillic, and English.
@@ -643,6 +687,15 @@ export class JobTools {
       }
     }
 
+    // Sales history, 27 Nov 2026: after a purchase she leads with reactions and teasing, not an interview. Refused once.
+    if (!this.interviewNudged && !this.thanks && postBuyInterview(latest, fanUuid, this.now(), text)) {
+      this.interviewNudged = true;
+      return refuse(
+        "Not sent: he bought from you in the last hours and your last two lines to him were questions. A third reads like an interview " +
+          "(22 Nov 2026: the top spender wrote \"Repetitive questions and behavior...\" and stopped opening the chat). Make this line a reaction, a tease or a short piece of your story with no question, and call send_reply again.",
+      );
+    }
+
     // Review, 26 Nov 2026: "no pressure / no rush / glad you're here" is refused once; the second try goes out so he is never left unanswered.
     if (!this.stockNudged && stockLine(text)) {
       this.stockNudged = true;
@@ -979,6 +1032,8 @@ export class JobTools {
       this.momentClaimNudged = true;
       return refuse("Not sent: the caption says the photo was just taken or made for him. Never claim that: give it a few neutral, playful words (or his own words) and call it again.");
     }
+    const paidCaption = paidCaptionProblem(text);
+    if (paidCaption) return refuse(paidCaption);
     const messages = await this.readChat(SALES_HISTORY_MESSAGES);
     const anchor = this.replied ? this.sentUuid : this.newestUuid;
     if (!anchor || !this.#anchorHolds(messages, anchor)) {
@@ -1022,6 +1077,8 @@ export class JobTools {
       this.momentClaimNudged = true;
       return refuse("Not sent: the caption says the photo was just taken or made for him. Never claim that: give it a few neutral, playful words (or his own words) and call it again.");
     }
+    const paidCaption = kind === "paid" ? paidCaptionProblem(text) : null;
+    if (paidCaption) return refuse(paidCaption);
 
     const messages = await this.readChat(SALES_HISTORY_MESSAGES);
     const anchor = this.replied ? this.sentUuid : this.newestUuid;
