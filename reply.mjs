@@ -12,7 +12,10 @@ const { JOB_ID, WORKER_URL, JOB_SECRET } = process.env;
 if (!/^[0-9a-f-]{36}$/.test(JOB_ID ?? "")) throw new Error("bad job id");
 
 // A like or comment on her post gets a message only if she has not written to him in this long (no double texting).
-const OWNER_ACTIVE_MS = 8 * 60_000; // the bot keeps out of a chat this long after Andrea typed in it herself
+// The bot keeps out of a chat this long after Andrea typed in it herself. Each message she types restarts it, so it never answers
+// on top of her. Owner, 28 Nov 2026: at 8 minutes a fan who answered her waited while ready to buy. 1 minute for a new fan.
+const OWNER_ACTIVE_MS = 2 * 60_000;
+const OWNER_ACTIVE_NEW_FAN_MS = 60_000;
 const PRELOAD_MESSAGES = 20;
 const MAX_WINBACK = 3;
 const MAX_UNANSWERED_WINBACK = MAX_WINBACK; // owner, 22 Nov 2026: a win-back streak may reach 3 unanswered messages
@@ -103,10 +106,11 @@ if (jobRes.status === 404) {
     let messages = await api.fetchMessages(fanUuid);
     if (job.research) return research(messages, researchNeedsReply(messages, fanUuid));
     // Chat review, 14 Nov 2026: the bot answered seconds after Andrea typed herself. While she is in the chat it stays out until
-    // OWNER_ACTIVE_MS has passed since her last own message. 28 Nov 2026: that wait ran inside this Action, whose 8-minute limit cut
+    // that window has passed since her last own message. 28 Nov 2026: the wait ran inside this Action, whose 8-minute limit cut
     // it off, so nothing was reported and a fan waited 15 minutes. Now the Worker is told when to start the job again.
     const herAt = herLastTypedAt(messages, fanUuid);
-    if (herAt && Date.now() - herAt < OWNER_ACTIVE_MS) return void (await post("", { done: true, skipped: "owner_active", retryAt: herAt + OWNER_ACTIVE_MS }));
+    const herWindow = justJoined(messages) ? OWNER_ACTIVE_NEW_FAN_MS : OWNER_ACTIVE_MS;
+    if (herAt && Date.now() - herAt < herWindow) return void (await post("", { done: true, skipped: "owner_active", retryAt: herAt + herWindow }));
     const wrote = needsReply(messages, fanUuid);
     const newest = messages[0];
     const hersNewest = newestPersonal(messages);
