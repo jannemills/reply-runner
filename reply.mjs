@@ -2,7 +2,7 @@
 // check the reply is still needed, a filter with no tools, then Claude with this fan's tools. Chat text never goes to the Worker.
 // Never print the job, the chat or Claude's output: this log is public.
 import { createApi } from "./fan/api.mjs";
-import { runAgent, runFilter } from "./fan/claude.mjs";
+import { FALLBACK, runAgent, runFilter } from "./fan/claude.mjs";
 import { answeredSince, freePhotoSince, herLastTypedAt, formatChat, isHandedOver, lowSignalKind, needsReply, newCreatorMessages, newFanMessages, newestPersonal, reactedTo, researchNeedsReply, splitNotes, stillNewest, unansweredRuns } from "./fan/chat.mjs";
 import { classifyPhoto, fanPhotoMessages } from "./fan/vision.mjs";
 import { startToolServer } from "./fan/mcp.mjs";
@@ -249,7 +249,15 @@ if (jobRes.status === 404) {
     const server = await startToolServer(tools, TOOLS);
     try {
       console.log(`model: ${/^claude-[a-z0-9-]+$/.test(String(agent.model)) ? agent.model : `other (${typeof agent.model}; keys ${Object.keys(agent).filter((k) => /^[a-zA-Z]{1,20}$/.test(k)).join(",")})`}`); // a model id or key names, never chat text
-      await runAgent({ ...agent, toolNames: TOOLS.map((t) => t.name), mcpUrl: server.url, mcpKey: server.key });
+      const args = { ...agent, toolNames: TOOLS.map((t) => t.name), mcpUrl: server.url, mcpKey: server.key };
+      await runAgent(args);
+      // 28 Nov 2026: a new subscriber's "Hi" ran on Haiku, which ended without sending anything, and he waited for the sweep to
+      // queue him again. A run that never tried to answer what he wrote is run once more at once, on another model.
+      if (plain && !tools.acted) {
+        const model = FALLBACK[agent.model] ?? "claude-sonnet-5-5";
+        console.log(`silent run: retrying on ${model}`);
+        await runAgent({ ...args, model });
+      }
     } finally {
       server.close();
     }

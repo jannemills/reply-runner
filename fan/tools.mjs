@@ -311,6 +311,7 @@ export const asksForPhoto = (text) =>
 
 export class JobTools {
   replied = false;
+  acted = false; // the model tried to send something, handed him over or ended the chat
   sentUuid = undefined; // the newest message we sent: it anchors the follow-up
   photoSent = false;
   momentSent = false;
@@ -377,6 +378,7 @@ export class JobTools {
   async call(name, args) {
     if (this.research && !RESEARCH_TOOLS.some((t) => t.name === name)) return refuse("Not available in this chat.");
     if (this.notBuying && name.startsWith("send_")) return refuse("You stopped answering him. Send nothing.");
+    if (name.startsWith("send_") || ["hand_over", "stop_chat", "stop_non_buyer"].includes(name)) this.acted = true;
     if (["send_photo", "send_ppv_pack", "send_moment_photos", "send_selfie"].includes(name)) this.photoTried = true;
     if (name === "send_ppv_pack" || (name === "send_photo" && args.kind === "paid")) this.paidTried = true;
     switch (name) {

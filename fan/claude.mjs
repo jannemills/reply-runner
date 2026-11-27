@@ -143,7 +143,7 @@ export async function runFilter({ model, system, prompt, schema }) {
 }
 
 // Review, 26 Nov 2026: jobs failed after one turn with a short model error while other models worked. One retry on another model.
-const FALLBACK = { "claude-fable-5-2": "claude-opus-5-5", "claude-opus-5-5": "claude-sonnet-5-5", "claude-sonnet-5-5": "claude-opus-5-5", "claude-haiku-5-5": "claude-sonnet-5-5" };
+export const FALLBACK = { "claude-fable-5-2": "claude-opus-5-5", "claude-opus-5-5": "claude-sonnet-5-5", "claude-sonnet-5-5": "claude-opus-5-5", "claude-haiku-5-5": "claude-sonnet-5-5" };
 
 export async function runAgent(args) {
   try {
