@@ -341,7 +341,7 @@ export class JobTools {
    * @param {string=} o.ignoreListUuid
    * @param {() => Promise<{ok: boolean, reason?: string}>} o.gate asks the Worker whether sending is still allowed (pause, daily cap)
    */
-  constructor({ api, fanUuid, newestUuid, followUp, thanks, tipGift, noSale, vip, trimChat, research, voice, speakFn, sendAt, rules, usaListUuid, ignoreListUuid, gate, sleep, now, random }) {
+  constructor({ api, fanUuid, newestUuid, followUp, freeHook, thanks, tipGift, noSale, vip, trimChat, research, voice, speakFn, sendAt, rules, usaListUuid, ignoreListUuid, gate, sleep, now, random }) {
     this.voice = !!voice; // owner, 21 Nov 2026: this fan gets short Serbian lines as voice notes (VOICE_FAN_UUIDS)
     this.speakFn = speakFn ?? speak;
     this.api = api;
@@ -349,6 +349,9 @@ export class JobTools {
     this.fanUuid = fanUuid;
     this.newestUuid = newestUuid;
     this.followUp = followUp;
+    // Owner, 28 Nov 2026 ("we should make the interest, we are able to send free images"): a message to a fan who has never written
+    // (joiner opener, silent re-engage, his like or comment) may carry one free photo or selfie as the hook; never a paid one.
+    this.freeHook = !!freeHook;
     this.thanks = !!thanks;
     this.tipGift = !!tipGift; // owner, 19 Nov 2026: a tip pays for the paid photos he was offered, so the thank-you may carry free paid-stock photos
     this.noSale = !!noSale;
@@ -551,6 +554,13 @@ export class JobTools {
    * (nobody answered by hand, no refusal in his new words), move the anchor to his newest message once so the
    * photo or pack still goes out instead of being dropped.
    */
+  /** Owner, 28 Nov 2026 (free photo hook): a chat that holds only automations has no personal anchor; it holds while nobody personal wrote. */
+  #anchorOk(messages) {
+    const anchor = this.replied ? this.sentUuid : this.newestUuid;
+    if (!anchor) return !this.replied && !newestPersonal(messages);
+    return this.#anchorHolds(messages, anchor);
+  }
+
   #anchorHolds(messages, anchor) {
     const newest = newestPersonal(messages);
     if (newest?.uuid === anchor) return true;
@@ -677,7 +687,7 @@ export class JobTools {
             ? "one priced step priced for him: send_photo kind paid or send_ppv_pack with a personal caption made of his own words (for a past tipper the tip line fits too)"
             : history.freePhotos > 0
               ? "his small, easy first unlock: send_photo kind paid, a cheap single, with his own words as the caption"
-              : "a free photo first (send_photo kind free) if he has shown real interest, so the paid one can follow on his reaction";
+              : "a free photo first (send_photo kind free), so the paid one can follow on his reaction";
           return refuse(
             `Not sent yet: you have written ${limit}+ messages to him since your last priced offer and the chat is still only words. Heat that is not turned into a sale now cools off. ` +
               `If he is warm (flirting, a compliment on your looks or body, anything sexual, "I want you", "I miss you", asking about you with interest), send ${step} NOW, before any send_reply, with your line as its caption. Only if the photo is refused, send_reply with words. ` +
@@ -864,8 +874,7 @@ export class JobTools {
       return refuse("Not sent: the caption says the photo was just taken or made for him. Never claim that: give it a few neutral, playful words (or his own words) and call it again.");
     }
     const messages = await this.readChat(SALES_HISTORY_MESSAGES);
-    const anchor = this.replied ? this.sentUuid : this.newestUuid;
-    if (!anchor || !this.#anchorHolds(messages, anchor)) {
+    if (!this.#anchorOk(messages)) {
       this.wroteAgain = true;
       return refuse("The chat changed. Send nothing more. Stop here.");
     }
@@ -929,7 +938,7 @@ export class JobTools {
 
   async #sendSelfie(args) {
     const { api, fanUuid } = this;
-    if (this.followUp) return refuse("No photos in a follow-up. Stop here.");
+    if (this.followUp && !this.freeHook) return refuse("No photos in a follow-up. Stop here.");
     if (isHandedOver(await api.getNotes(fanUuid), this.now())) return refuse("This chat is with a person. Stop here.");
     const gate = await this.gate();
     if (!gate.ok) return refuse(gate.reason ?? "Not allowed now. Stop here.");
@@ -940,8 +949,7 @@ export class JobTools {
       return refuse("Not sent: the caption says the photo was just taken or made for him. Never claim that: give it a few neutral, playful words (or his own words) and call it again.");
     }
     const messages = await this.readChat(SALES_HISTORY_MESSAGES);
-    const anchor = this.replied ? this.sentUuid : this.newestUuid;
-    if (!anchor || !this.#anchorHolds(messages, anchor)) {
+    if (!this.#anchorOk(messages)) {
       this.wroteAgain = true;
       return refuse("The chat changed. Send nothing more. Stop here.");
     }
@@ -991,8 +999,7 @@ export class JobTools {
     if (!text || text.length > 200 || text.includes("\n")) return refuse("Refused: one short line, at most 200 characters, no links, no mention of AI.");
     const count = Math.min(Math.max(Math.trunc(Number(args.count)) || 1, 1), 3);
     const messages = await this.readChat(SALES_HISTORY_MESSAGES);
-    const anchor = this.replied ? this.sentUuid : this.newestUuid;
-    if (!anchor || !this.#anchorHolds(messages, anchor)) {
+    if (!this.#anchorOk(messages)) {
       this.wroteAgain = true;
       return refuse("The chat changed. Send nothing more. Stop here.");
     }
@@ -1037,8 +1044,7 @@ export class JobTools {
     const paidCaption = paidCaptionProblem(text);
     if (paidCaption) return refuse(paidCaption);
     const messages = await this.readChat(SALES_HISTORY_MESSAGES);
-    const anchor = this.replied ? this.sentUuid : this.newestUuid;
-    if (!anchor || !this.#anchorHolds(messages, anchor)) {
+    if (!this.#anchorOk(messages)) {
       this.wroteAgain = true;
       return refuse("The chat changed. Send nothing more. Stop here.");
     }
@@ -1064,8 +1070,9 @@ export class JobTools {
 
   async #sendPhoto(args) {
     const { api, fanUuid, rules } = this;
-    if (this.followUp) return refuse("No photos in a follow-up. Stop here.");
     const kind = args.kind === "paid" ? "paid" : "free";
+    if (this.followUp && !(this.freeHook && kind === "free"))
+      return refuse(this.freeHook ? "No paid photo before he has written: one free photo or selfie at most. Stop here." : "No photos in a follow-up. Stop here.");
     if (this.noSale && kind === "paid") return refuse("He is sold nothing after a refund or chargeback: no paid photo. Stop here.");
     if (this.thanks && kind === "paid") return refuse("No paid photo in a thank-you for his tip: the next offer waits until he flirts again. Stop here.");
     const priceUsd = args.price_usd === undefined ? undefined : Number(args.price_usd);
@@ -1083,8 +1090,7 @@ export class JobTools {
     if (paidCaption) return refuse(paidCaption);
 
     const messages = await this.readChat(SALES_HISTORY_MESSAGES);
-    const anchor = this.replied ? this.sentUuid : this.newestUuid;
-    if (!anchor || !this.#anchorHolds(messages, anchor)) {
+    if (!this.#anchorOk(messages)) {
       this.wroteAgain = true;
       return refuse("The chat changed. Send nothing more. Stop here.");
     }
