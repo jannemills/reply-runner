@@ -307,7 +307,7 @@ export function postBuyInterview(messages, fanUuid, now, text) {
  * $25 photos within minutes. Serbian in Latin and Cyrillic, and English.
  */
 export const asksForPhoto = (text) =>
-  /(show me|send me|let me see|wanna see|want to see|see (more|your|all)|your (body|face|lips|ass|boobs|tits|pics?|photos?)|whole body|pics?\b|photos?\b|phots|picture|nudes?|selfie|gift for it|slik|fotk|posalji|pošalji|pokazi|pokaži|da te vidim|vidim te|da (ih |je )?vidim (te|tvoj|tvoje|tvoju|oci|oči|sise|guz|samo)|obecala si|obećala si|golisav|golu|голу|обећала си|tvoje telo|telo tvoje|слик|пошаљи|покажи|да те видим|да видим)/iu.test(text ?? "");
+  /(show me|send me|let me see|wanna see|want to see|see (more|your|all)|your (body|face|lips|ass|boobs|tits|pics?|photos?)|whole body|pics?\b|photos?\b|phots|picture|nudes?|selfie|gift for it|slik|sli[cč]ic|сличиц|fotk|posalji|pošalji|pokazi|pokaži|da te vidim|vidim te|da (ih |je )?vidim (te|tvoj|tvoje|tvoju|oci|oči|sise|guz|samo)|obecala si|obećala si|golisav|golu|голу|обећала си|tvoje telo|telo tvoje|слик|пошаљи|покажи|да те видим|да видим)/iu.test(text ?? "");
 
 export class JobTools {
   replied = false;
