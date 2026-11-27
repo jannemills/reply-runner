@@ -557,7 +557,7 @@ export class JobTools {
         return refuse(
           "Not sent: he asked to see you and you have photos for him. Answer his ask with the photo itself, the way the owner sells: " +
             "send_photo (paid at his usual price, or free if he has had nothing warm from you yet) or send_ppv_pack, with your words as its short caption. " +
-            "If you want one short line before it, call send_reply again with it and then the photo right after. Never only words.",
+            "Call the photo tool NOW, before any send_reply: your line goes in its caption. Only if the photo is refused, send_reply with words. Never only words.",
         );
       }
       this.missedPhotoAsk = true;
@@ -574,7 +574,7 @@ export class JobTools {
           this.freeTalkNudged = true;
           return refuse(
             `Not sent: you have written ${limit}+ text replies to him with no photo, and he has never paid. Free talk is what he came for; more of it teaches him not to pay. ` +
-              "Turn his own last words into the caption of ONE small paid single (send_photo kind paid, small and easy, priced for him) and send it with this reply, then keep the line short. " +
+              "Turn his own last words into the caption of ONE small paid single (send_photo kind paid, small and easy, priced for him): call send_photo NOW, before any send_reply, with your line as its caption. Only if it is refused, send_reply with words. " +
               "If he said his card or payment does not work, give one concrete help (add or change the card in Fanvue settings, try the app) and do not send a new offer; keep the text short and do not continue explicit talk for free. " +
               "If he has said no to a small unlock, send_reply again with one short plain line.",
           );
@@ -605,7 +605,7 @@ export class JobTools {
               : "a free photo first (send_photo kind free) if he has shown real interest, so the paid one can follow on his reaction";
           return refuse(
             `Not sent yet: you have written ${limit}+ messages to him since your last priced offer and the chat is still only words. Heat that is not turned into a sale now cools off. ` +
-              `If he is warm (flirting, a compliment on your looks or body, anything sexual, "I want you", "I miss you", asking about you with interest), call send_reply again with your line and then ${step}, in this same reply. ` +
+              `If he is warm (flirting, a compliment on your looks or body, anything sexual, "I want you", "I miss you", asking about you with interest), send ${step} NOW, before any send_reply, with your line as its caption (27 Nov 2026: 29 of 29 times the line went out first and the photo never followed). Only if the photo is refused, send_reply with words. ` +
               "If he is sad, worried, tired or saying goodnight, just call send_reply again with your line and stay warm.",
           );
         }

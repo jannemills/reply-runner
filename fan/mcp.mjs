@@ -36,7 +36,7 @@ export async function startToolServer(jobTools, tools) {
   const call = async (name, args) => {
     try {
       const result = await jobTools.call(name, args);
-      if (name === "send_reply" || result.isError) console.log(`tool ${name} ${result.isError ? "refused" : "ok"}: ${result.text.slice(0, 60)}`);
+      if (name === "send_reply" || name.startsWith("send_") || result.isError) console.log(`tool ${name} ${result.isError ? "refused" : "ok"}: ${result.text.slice(0, 60)}`);
       return result;
     } catch (err) {
       if (err?.status === 400 && name.startsWith("send_")) cannotContact = true;

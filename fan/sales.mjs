@@ -224,7 +224,10 @@ export function photoRefusal(kind, h, now, priceUsd, rules, firstBuyer = false) 
       return `He got a free photo in the last ${rules.freePhotoDays} days. No new one yet.`;
     return null;
   }
-  if (!h.bought && h.chatStartAt && now - h.chatStartAt < NEW_CHAT_MINUTES * 60_000)
+  // Review, 27 Nov 2026 (12 h, 0 sales): hot new fans who already had their free photos hit this block and the free cap at once, so nothing could
+  // go out and the reply said "patience" (soulful-equation-653 left). Once he has had a free photo and answered it, the paid step may follow (owner pattern).
+  const reacted = h.freePhotos > 0 && h.lastFreeAt && h.lastFanAt && h.lastFanAt > h.lastFreeAt;
+  if (!h.bought && !reacted && h.chatStartAt && now - h.chatStartAt < NEW_CHAT_MINUTES * 60_000)
     return `This chat started ${Math.max(1, Math.round((now - h.chatStartAt) / 60_000))} min ago. No paid offer in the first ${NEW_CHAT_MINUTES} minutes: get to know him first (a free photo only on a real sign of interest).`;
   if (!Number.isInteger(priceUsd) || priceUsd < rules.minPriceUsd || priceUsd > rules.maxPriceUsd)
     return `Choose a whole-dollar price from ${rules.minPriceUsd} to ${rules.maxPriceUsd}.`;
