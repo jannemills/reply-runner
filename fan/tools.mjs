@@ -1,5 +1,5 @@
 // The reply agent's tools. One JobTools object serves one job: the fan is fixed when it is built and no tool takes a fan id.
-import {
+import { replacementDue, withReplacement,
   belgradeNow,
   finalText,
   formatChat,
@@ -25,7 +25,7 @@ import {
 } from "./chat.mjs";
 import { withTypo } from "./typo.mjs";
 import { MAX_VOICE_WORDS, speak, spokenText, voiceName, wordCount } from "./voice.mjs";
-import { packRefusal, buildPool, poolForFan, isFirstBuyer, freeTalkRun, sincePaidRun, MAX_FREE_STREAK, VIP_MAX_FREE_STREAK, FREE_PER_HOUR, VIP_FREE_PER_HOUR, notBuyingRefusal, paidCandidates, photoRefusal, priceAnchorUsd, pickPack, pickPhoto, profileText, salesHistory, turnsAwayMoney, sendsHimAway, saysGoodbye, raisesPaying, saysCannotPay } from "./sales.mjs";
+import { isSelfieFolder, packRefusal, buildPool, poolForFan, isFirstBuyer, freeTalkRun, sincePaidRun, MAX_FREE_STREAK, VIP_MAX_FREE_STREAK, FREE_PER_HOUR, VIP_FREE_PER_HOUR, notBuyingRefusal, paidCandidates, photoRefusal, priceAnchorUsd, pickPack, pickPhoto, profileText, salesHistory, turnsAwayMoney, sendsHimAway, saysGoodbye, raisesPaying, saysCannotPay } from "./sales.mjs";
 
 const none = { type: "object", properties: {}, additionalProperties: false };
 
@@ -136,7 +136,7 @@ export const TOOLS = [
   {
     name: "send_tip_photos",
     description:
-      "Only in the reply to a tip (not a purchase): the tip pays for the paid photos he was offered, so give him paid-stock photos for free in one message. count 1 to 3 (as many as his tip covers: about one photo per $5 to $6 of tip, or as many locked offers as he left unopened, at most 3). Photos he has not seen come from the paid stock; a caption of a few words, no price, never says it is for the tip. Refused outside a tip thank-you and when no unseen paid photo is left.",
+      "Only in the reply to a tip (not a purchase): thank him with free photos in one message. count 1 to 3 (as many as his tip covers: about one photo per $5 to $6 of tip, or as many locked offers as he left unopened, at most 3). They are photos he has not seen from the free stock, never paid (ppv) ones; a caption of a few words, no price, never says it is for the tip. Refused outside a tip thank-you and when no unseen free photo is left.",
     inputSchema: {
       type: "object",
       properties: {
@@ -144,6 +144,20 @@ export const TOOLS = [
         count: { type: "integer", minimum: 1, maximum: 3 },
       },
       required: ["text", "count"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "send_replacement_photos",
+    description:
+      "Only when he says a photo you sent him is one he already had (the same photo again, \"you already sent me this\", \"vec si mi to slala\"). The caption is a short apology in his language (\"ajoj izvini, zaboravila sam 🙈 evo ti druge\", \"oh sorry, i forgot 🙈 here are others\") and other photos he has not had go with it, free. count = how many of his were repeats (1 to 3). They always come from the free stock, never paid (ppv) ones, also when the repeated one was paid for. Never a price, never argue that the photo was different or new. Refused if he already got replacements in the last 12 hours.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        text: { type: "string", description: "The apology, a few words. No price." },
+        count: { type: "integer", minimum: 1, maximum: 3 },
+      },
+      required: ["text"],
       additionalProperties: false,
     },
   },
@@ -224,7 +238,7 @@ export function momentFolders(folders) {
   return found.sort((a, b) => a.createdAt - b.createdAt || a.index - b.index || a.name.localeCompare(b.name));
 }
 // Owner, 22 Nov 2026: a vault folder of plain selfies. The owner typed it "selife"; both spellings (and "selfies") are the folder.
-export const isSelfieFolder = (name) => /^(selfies?|selife)$/i.test(String(name ?? "").trim());
+export { isSelfieFolder };
 const SELFIES_PER_REPLY = 2;
 // Owner, 13 Nov 2026: the "in the moment" sets go out free to anyone, as often as the chat asks for them (was once per 24 hours).
 const MOMENT_GAP_MS = 0;
@@ -244,7 +258,7 @@ const refuse = (text) => ({ text, isError: true });
  * ("evo ...", "ovu pazi", "look at this", "here is one") must not be sent as text when no photo went out in this reply.
  */
 export const announcesPhoto = (text) =>
-  /\bevo\b[^.!?\n]{0,24}\b(nesto|nešto|slik\w*|foto\w*|jednu|ovu|ovo|ovaj|malo\s+smel\w*)|\bovu\s+(pazi|vidi|gledaj)|\b(pazi|vidi|gledaj)\s+ovu\b|\b(look at|check out)\s+(this|that)\b|\bhere(?:'s| is)\s+(a|one|my|something)\s+(pic|photo|picture|selfie|one)\b|\bhere you go\b|\b(sending|sent)\s+you\s+(a|one|something)\b|(?:^|[^\p{L}])(?:šaljem|saljem|poslala sam)\s+ti\b|\bti je ova\b|\bov[aeo]\s+(ovdje|ovde|ovdi)\b/iu.test(String(text ?? ""));
+  /\bevo\b[^.!?\n]{0,24}\b(nesto|nešto|slik\w*|foto\w*|jednu|ovu|ovo|ovaj|malo\s+smel\w*)|\bevo\b[^.!?\n]{0,24}(?:(?<![\p{L}])(?:jedn[aeu](?![\p{L}])|(?:jos|još)\s+(?:par|dve|dvije)(?![\p{L}])))|\bhere(?:'s| is)\s+another\b|\bovu\s+(pazi|vidi|gledaj)|\b(pazi|vidi|gledaj)\s+ovu\b|\b(look at|check out)\s+(this|that)\b|\bhere(?:'s| is)\s+(a|one|my|something)\s+(pic|photo|picture|selfie|one)\b|\bhere you go\b|\b(sending|sent)\s+you\s+(a|one|something)\b|(?:^|[^\p{L}])(?:šaljem|saljem|poslala sam)\s+ti\b|\bti je ova\b|\bov[aeo]\s+(ovdje|ovde|ovdi)\b/iu.test(String(text ?? ""));
 
 /** Review, 26 Nov 2026: stock lines that went word for word to 14+ fans in two days, none answered. */
 export const stockLine = (text) =>
@@ -354,7 +368,7 @@ export class JobTools {
     // (joiner opener, silent re-engage, his like or comment) may carry one free photo or selfie as the hook; never a paid one.
     this.freeHook = !!freeHook;
     this.thanks = !!thanks;
-    this.tipGift = !!tipGift; // owner, 19 Nov 2026: a tip pays for the paid photos he was offered, so the thank-you may carry free paid-stock photos
+    this.tipGift = !!tipGift; // owner, 19 Nov 2026: a tip earns photos, so the thank-you may carry up to three (free stock only since 28 Nov 2026)
     this.noSale = !!noSale;
     this.vip = !!vip;
     this.trimChat = !!trimChat;
@@ -430,7 +444,7 @@ export class JobTools {
               : momentLeft ? ' No free "in the moment" set left for him: every set was used for him already.' : "") +
             (paidLeft
               ? this.vip && !pool.ppv.some((p) => !history.seen.has(p.uuid))
-                ? " His usual paid photos are used up; his paid offers now come from softer lingerie and warm-up photos, so price them a little below his usual (a pack of 3 to 5 around $12 to $25) and keep selling."
+                ? " His usual paid photos are used up; his paid offers now come from the few extra warm-up photos left, so price them a little below his usual and keep selling."
                 : ""
               : ` OUT OF PAID PHOTOS for him: he has had every paid photo. Follow "Out of paid photos" in your instructions: call ready_for_offer with reason "out of paid photos" now${freeLeft ? ", and if he asks for photos give him a free one with send_photo kind free" : ""}; never dodge his request and never say something is waiting for him.`);
         const notesText = await this.api.getNotes(this.fanUuid).catch(() => "");
@@ -459,6 +473,8 @@ export class JobTools {
         return this.#exclusive("One photo message per reply. Stop here.", () => this.#sendSelfie(args), () => this.photoSent || this.momentSent);
       case "send_tip_photos":
         return this.#exclusive("One photo message per reply. Stop here.", () => this.#sendTipPhotos(args), () => this.photoSent || this.momentSent);
+      case "send_replacement_photos":
+        return this.#exclusive("One photo message per reply. Stop here.", () => this.#sendReplacementPhotos(args), () => this.photoSent || this.momentSent);
       case "ready_for_offer":
         if (this.noSale) return refuse("He is sold nothing after a refund or chargeback. Keep the chat warm and friendly.");
         this.alerts.push({ kind: "offer", reason: String(args.reason ?? "") });
@@ -715,7 +731,7 @@ export class JobTools {
     }
 
     // Review, 24 Nov 2026 (evening): a line that announces a photo while none has gone out. Refused twice at most, so he is never left unanswered.
-    if (!this.photoSent && !this.thanks && !this.research && (this.announceRefusals ??= 0) < 2 && announcesPhoto(text)) {
+    if (!this.photoSent && !this.momentSent && !this.thanks && !this.research && (this.announceRefusals ??= 0) < 2 && announcesPhoto(text)) {
       this.announceRefusals += 1;
       return refuse(
         "Not sent: your line announces a photo (\"evo ...\", \"look at this\") but no photo has gone out. Either send the photo first (send_photo, send_moment_photos, send_selfie or send_ppv_pack, " +
@@ -834,9 +850,10 @@ export class JobTools {
    */
   async #momentSets() {
     const named = momentFolders(await Promise.resolve().then(() => this.api.listFolders()).catch(() => null));
-    const [notes, ever, media] = await Promise.all([
+    const [notes, ever, pool, media] = await Promise.all([
       this.api.getNotes(this.fanUuid).catch(() => ""),
       this.#everSentMedia(),
+      this.#getPool(),
       Promise.all(
         named.map(({ name }) =>
           this.api
@@ -846,13 +863,16 @@ export class JobTools {
         ),
       ),
     ]);
+    if (!pool) return null;
     const usedNames = usedMomentSets(notes);
     return named
       // Owner, 24 Nov 2026 (one free photo per send): a set is used once all of it went to him (or the note names it, sets from
       // before this change); a set with some photos sent is "started" and is continued on the next send.
       .map((f, i) => {
-        const sent = media[i].filter((u) => ever?.has(u)).length;
-        return { ...f, uuids: media[i], started: sent > 0, used: usedNames.has(f.name.trim().toLowerCase()) || (media[i].length > 0 && sent >= media[i].length) };
+        // Owner, 28 Nov 2026: a "ppv" photo never goes out free, whatever other folder holds it too.
+        const uuids = media[i].filter((u) => !pool.ppvIds.has(u));
+        const sent = uuids.filter((u) => ever?.has(u)).length;
+        return { ...f, uuids, started: sent > 0, used: usedNames.has(f.name.trim().toLowerCase()) || (uuids.length > 0 && sent >= uuids.length) };
       })
       .filter((f) => f.uuids.length);
   }
@@ -970,7 +990,9 @@ export class JobTools {
           .catch(() => []),
       ),
     );
-    const bag = [...new Set(lists.flat())].filter((u) => !ever.has(u));
+    const pool = await this.#getPool();
+    if (!pool) return refuse("The selfie folder could not be read this time. Answer in words.");
+    const bag = [...new Set(lists.flat())].filter((u) => !ever.has(u) && !pool.ppvIds.has(u));
     if (!bag.length) return refuse("He already had every selfie. Send none: answer in words, without promising a photo later.");
     const count = Math.min(Math.max(Math.trunc(Number(args.count)) || 1, 1), SELFIES_PER_REPLY, bag.length);
     const uuids = [];
@@ -985,9 +1007,22 @@ export class JobTools {
     return ok(`Sent ${uuids.length} selfie${uuids.length > 1 ? "s" : ""}. ${bag.length ? "" : "That was the last unseen selfie for him."}`.trim());
   }
 
+  /** Up to `wanted` different free-stock photos he has not had; never a "ppv" one (owner, 28 Nov 2026). */
+  #unseenFree(pool, history, wanted) {
+    const seen = new Set(history.seen);
+    const uuids = [];
+    while (pool && uuids.length < wanted) {
+      const next = pickPhoto(pool, "free", { ...history, seen }, false, this.random);
+      if (!next) break;
+      uuids.push(next);
+      seen.add(next);
+    }
+    return uuids;
+  }
+
   /**
-   * Owner, 19 Nov 2026 ("when he tips we can send ppv photo/s for free because he tipped us"): the reply to a tip may carry
-   * 1 to 3 unseen photos from the paid stock, free, in one message. Not for purchases, follow-ups or after a refund.
+   * Owner, 19 Nov 2026 (a tip earns photos): the reply to a tip may carry 1 to 3 unseen photos in one message. Owner, 28 Nov 2026
+   * ("we should only send the ppv as ppv - never free"): from the free stock only. Not for purchases, follow-ups or after a refund.
    */
   async #sendTipPhotos(args) {
     const { api, fanUuid } = this;
@@ -1006,12 +1041,8 @@ export class JobTools {
       return refuse("The chat changed. Send nothing more. Stop here.");
     }
     const history = await this.#history(messages);
-    const pool = await this.#getPool();
-    const left = pool ? paidCandidates(pool, history, this.vip) : [];
-    if (!left.length) return refuse("No unseen paid photo is left for him. Send one free photo with send_photo kind free instead, or words only.");
-    const bag = [...left];
-    const uuids = [];
-    while (uuids.length < count && bag.length) uuids.push(bag.splice(Math.floor(this.random() * bag.length), 1)[0].uuid);
+    const uuids = this.#unseenFree(await this.#getPool(), history, count);
+    if (!uuids.length) return refuse("No unseen free photo is left for him. Send one with send_moment_photos if a set is left, else words only.");
     if (this.replied) await this.#wait(typingDelayMs(text));
     await api.sendPhotos(fanUuid, text, uuids);
     await this.#noteSent(uuids);
@@ -1019,7 +1050,46 @@ export class JobTools {
     if (newest && newest.sender.uuid !== fanUuid) this.sentUuid = newest.uuid;
     this.replied = true;
     this.photoSent = true;
-    return ok(`Sent ${uuids.length} paid-stock photo${uuids.length > 1 ? "s" : ""} for free as the answer to his tip.`);
+    return ok(`Sent ${uuids.length} free photo${uuids.length > 1 ? "s" : ""} as the answer to his tip.`);
+  }
+
+  /**
+   * Owner, 28 Nov 2026: "if we send same photos and user complain we should say oh sorry i forgot and send other photos". Free-stock
+   * photos only (never "ppv"), in one message with the apology as its caption. No free-photo caps (it makes good our mistake), once
+   * per REPLACEMENT_GAP_MS.
+   */
+  async #sendReplacementPhotos(args) {
+    const { api, fanUuid } = this;
+    if (this.followUp) return refuse("No photos in a follow-up. Stop here.");
+    if (isHandedOver(await api.getNotes(fanUuid), this.now())) return refuse("This chat is with a person. Stop here.");
+    const gate = await this.gate();
+    if (!gate.ok) return refuse(gate.reason ?? "Not allowed now. Stop here.");
+    const text = finalText(String(args.text ?? ""));
+    if (!text || text.length > 200 || text.includes("\n")) return refuse("Refused: one short line, at most 200 characters, no links, no mention of AI.");
+    if (!this.momentClaimNudged && momentClaim(text)) {
+      this.momentClaimNudged = true;
+      return refuse("Not sent: the caption says the photo was just taken or made for him. Never claim that: a short sorry in a few words, and call it again.");
+    }
+    const messages = await this.readChat(SALES_HISTORY_MESSAGES);
+    if (!this.#anchorOk(messages)) {
+      this.wroteAgain = true;
+      return refuse("The chat changed. Send nothing more. Stop here.");
+    }
+    if (!replacementDue(await api.getNotes(fanUuid), this.now()))
+      return refuse("He already got other photos for a repeat in the last 12 hours. Send none now: say a short sorry in words with send_reply.");
+    const history = await this.#history(messages);
+    const wanted = Math.min(Math.max(Math.trunc(Number(args.count)) || 1, 1), 3);
+    const uuids = this.#unseenFree(await this.#getPool(), history, wanted);
+    if (!uuids.length) return refuse("No other photo is left for him. Say a short sorry in words with send_reply and call ready_for_offer.");
+    if (this.replied) await this.#wait(typingDelayMs(text));
+    await api.sendPhotos(fanUuid, text, uuids);
+    await api.putNotes(fanUuid, withReplacement(await api.getNotes(fanUuid), this.now())).catch(() => {});
+    await this.#noteSent(uuids);
+    const newest = (await api.fetchMessages(fanUuid).catch(() => []))[0];
+    if (newest && newest.sender.uuid !== fanUuid) this.sentUuid = newest.uuid;
+    this.replied = true;
+    this.photoSent = true;
+    return ok(`Sent ${uuids.length} other photo${uuids.length > 1 ? "s" : ""} free with your apology.`);
   }
 
   /** Several paid photos in one message with one free preview. Same gates as a paid photo; wider price range. */

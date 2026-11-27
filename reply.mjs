@@ -12,7 +12,7 @@ const { JOB_ID, WORKER_URL, JOB_SECRET } = process.env;
 if (!/^[0-9a-f-]{36}$/.test(JOB_ID ?? "")) throw new Error("bad job id");
 
 // A like or comment on her post gets a message only if she has not written to him in this long (no double texting).
-const OWNER_ACTIVE_MS = 8 * 60_000; // the bot keeps out of a chat this long after Andrea typed in it herself (job timeout is 15 min)
+const OWNER_ACTIVE_MS = 8 * 60_000; // the bot keeps out of a chat this long after Andrea typed in it herself
 const PRELOAD_MESSAGES = 20;
 const MAX_WINBACK = 3;
 const MAX_UNANSWERED_WINBACK = MAX_WINBACK; // owner, 22 Nov 2026: a win-back streak may reach 3 unanswered messages
@@ -102,14 +102,11 @@ if (jobRes.status === 404) {
 
     let messages = await api.fetchMessages(fanUuid);
     if (job.research) return research(messages, researchNeedsReply(messages, fanUuid));
-    // Chat review, 14 Nov 2026: the bot answered seconds after Andrea typed herself. While she is in the chat, wait until
-    // OWNER_ACTIVE_MS has passed since her last own message, then look again (she may have answered him).
+    // Chat review, 14 Nov 2026: the bot answered seconds after Andrea typed herself. While she is in the chat it stays out until
+    // OWNER_ACTIVE_MS has passed since her last own message. 28 Nov 2026: that wait ran inside this Action, whose 8-minute limit cut
+    // it off, so nothing was reported and a fan waited 15 minutes. Now the Worker is told when to start the job again.
     const herAt = herLastTypedAt(messages, fanUuid);
-    if (herAt && Date.now() - herAt < OWNER_ACTIVE_MS) {
-      await new Promise((r) => setTimeout(r, OWNER_ACTIVE_MS - (Date.now() - herAt)));
-      messages = await api.fetchMessages(fanUuid);
-      if (Date.now() - herLastTypedAt(messages, fanUuid) < OWNER_ACTIVE_MS) return void (await post("", { done: true, skipped: "answered" }));
-    }
+    if (herAt && Date.now() - herAt < OWNER_ACTIVE_MS) return void (await post("", { done: true, skipped: "owner_active", retryAt: herAt + OWNER_ACTIVE_MS }));
     const wrote = needsReply(messages, fanUuid);
     const newest = messages[0];
     const hersNewest = newestPersonal(messages);
@@ -228,7 +225,7 @@ if (jobRes.status === 404) {
       followUp: followUp || reengage || (!!engaged && !hasWritten), // no photos in these...
       freeHook: (reengage || !!engaged) && !hasWritten, // ...except one free photo or selfie as the hook for a fan who never wrote (owner, 28 Nov 2026)
       thanks,
-      tipGift: thanks && !job.tip?.purchase, // a tip, not a purchase: the thank-you may carry free paid-stock photos (owner, 19 Nov 2026)
+      tipGift: thanks && !job.tip?.purchase, // a tip, not a purchase: the thank-you may carry free photos (owner, 19 Nov 2026; free stock only since 28 Nov)
       noSale: !!job.noSale,
       vip: !!job.vip,
       voice: !!job.voice && !isUsa, // owner, 21 Nov 2026: voice notes only for Serbian fans on VOICE_FAN_UUIDS
@@ -251,10 +248,12 @@ if (jobRes.status === 404) {
       console.log(`model: ${/^claude-[a-z0-9-]+$/.test(String(agent.model)) ? agent.model : `other (${typeof agent.model}; keys ${Object.keys(agent).filter((k) => /^[a-zA-Z]{1,20}$/.test(k)).join(",")})`}`); // a model id or key names, never chat text
       const args = { ...agent, toolNames: TOOLS.map((t) => t.name), mcpUrl: server.url, mcpKey: server.key };
       await runAgent(args);
-      // 28 Nov 2026: a new subscriber's "Hi" ran on Haiku, which ended without sending anything, and he waited for the sweep to
-      // queue him again. A run that never tried to answer what he wrote is run once more at once, on another model.
-      if (plain && !tools.acted) {
-        const model = FALLBACK[agent.model] ?? "claude-sonnet-5-5";
+      // 28 Nov 2026: a new subscriber's "Hi" ran on Haiku, which ended without sending anything; another run had every send refused
+      // and ended too. Both fans waited for the sweep. A run that sent nothing for what he wrote is run once more at once: on another
+      // model when it never tried to answer, on the same one when its sends were refused.
+      const unanswered = !tools.replied && !tools.sentUuid && !tools.wroteAgain && !tools.stopped && !tools.notBuying && !tools.alerts.some((a) => a.kind === "needs_person");
+      if (plain && unanswered && (await tools.gate()).ok) {
+        const model = tools.acted ? agent.model : FALLBACK[agent.model] ?? "claude-sonnet-5-5";
         console.log(`silent run: retrying on ${model}`);
         await runAgent({ ...args, model });
       }

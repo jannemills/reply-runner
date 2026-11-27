@@ -136,23 +136,43 @@ export async function buildPool(api) {
   const skip = new Set([...ai.map((m) => m.uuid), ...posted, ...scheduled]);
   // Owner, 24 Nov 2026: a vault folder named "free <date>" (e.g. "free 23.11") holds new, fresh photos for free sends; they go out
   // before the older "free" folder (pickPhoto prefers `fresh`). Optional: a missing or unreadable folder changes nothing.
-  const fresh = poolFrom((await freshFolderMedia(api)).flat(), skip).map((p) => ({ ...p, fresh: true }));
+  const [freshMedia, selfies] = await Promise.all([freshFolderMedia(api), selfieFolderMedia(api)]);
+  // Owner, 28 Nov 2026 ("we should only send the ppv as ppv - never free"): a photo that sits in "ppv" never goes out free: not as a
+  // free photo, gift, selfie, set or pack preview.
+  const ppvIds = new Set(ppv.map((m) => m.uuid));
+  const freeFrom = (media) => poolFrom(media, skip).filter((p) => !ppvIds.has(p.uuid));
+  const fresh = freeFrom(freshMedia.flat()).map((p) => ({ ...p, fresh: true }));
   const freshIds = new Set(fresh.map((p) => p.uuid));
-  const ppvPool = poolFrom(ppv, skip);
+  // Owner, 28 Nov 2026 ("we shouldn't send free photos as ppv"): a photo that sits in a free folder ("free", "free <date>", selfie) is
+  // never priced, whatever other folder it is also in (one that is also in "ppv" so goes out neither way). Supersedes the 6 Nov VIP
+  // fallback to free photos.
+  const givenFree = new Set([...free, ...freshMedia.flat(), ...selfies.flat()].map((m) => m.uuid));
+  const paidOnly = (list) => poolFrom(list, skip).filter((p) => !givenFree.has(p.uuid));
+  const ppvPool = paidOnly(ppv);
   const inPpv = new Set(ppvPool.map((p) => p.uuid));
-  const vipExtra = [...new Map(poolFrom([...free, ...warmUp.flat()], skip).filter((p) => !inPpv.has(p.uuid)).map((p) => [p.uuid, p])).values()];
-  return { free: [...fresh, ...poolFrom(free, skip).filter((p) => !freshIds.has(p.uuid))], ppv: ppvPool, preview: poolFrom(preview, skip), vipExtra };
+  const vipExtra = [...new Map(paidOnly(warmUp.flat()).filter((p) => !inPpv.has(p.uuid)).map((p) => [p.uuid, p])).values()];
+  return { free: [...fresh, ...freeFrom(free).filter((p) => !freshIds.has(p.uuid))], ppv: ppvPool, preview: freeFrom(preview), vipExtra, ppvIds };
+}
+
+/** The plain selfie folder(s), spelling of the owner's folder included. */
+export const isSelfieFolder = (name) => /^(selfies?|selife)$/i.test(String(name ?? "").trim());
+
+async function selfieFolderMedia(api) {
+  const folders = await Promise.resolve().then(() => api.listFolders()).catch(() => []);
+  const named = (folders ?? []).filter((f) => isSelfieFolder(f.name));
+  return Promise.all(named.map((f) => Promise.resolve().then(() => api.listFolderMedia(f.name)).catch(() => [])));
 }
 
 /**
  * Owner, 6 Nov 2026: "we should sell to VIP a lot". When a VIP has had every paid photo, paid offers to him may use photos he
- * has never seen from the free and warm-up folders. Only after "ppv" is used up for him.
+ * has never seen from the warm-up folders, only after "ppv" is used up for him. Photos that are also in a free folder are left
+ * out (owner, 28 Nov 2026: free photos are never sold).
  * Owner, 26 Nov 2026 ("we should always sell"; a buyer had every "ppv" photo and could be sold nothing): the same for every fan who
  * has bought in this chat (the callers pass vip || bought).
  */
 export const VIP_EXTRA_FOLDERS = ["thong", "zapoznavanje 1", "zagrevanje 1", "miksanje 1"];
 
-/** The paid photos he can still be sold: "ppv", and for a VIP whose "ppv" is used up, the unseen free and warm-up photos. */
+/** The paid photos he can still be sold: "ppv", and for a buyer or VIP whose "ppv" is used up, the unseen non-free warm-up photos. */
 export function paidCandidates(pool, h, vip) {
   // Never offered first; then (VIPs and buyers) unseen extra photos; then paid photos he was offered before and never bought (owner, 26 Nov 2026).
   const ppv = pool.ppv.filter((p) => !h.seen.has(p.uuid));
@@ -169,7 +189,7 @@ export function pickPack(pool, h, count, nude, random, vip = false) {
   // Owner deleted the "preview" folder (6 Nov 2026) and every pack was refused for every fan: an unseen free photo is the preview then.
   const inRest = new Set(rest.map((p) => p.uuid));
   const previews = unseen(pool.preview ?? []).length ? unseen(pool.preview) : unseen(pool.free ?? []).filter((p) => !h.offeredBefore.has(p.uuid) && !inRest.has(p.uuid));
-  // A VIP with too few paid photos left gets the pack topped up from the unseen free and warm-up photos.
+  // A buyer or VIP with too few paid photos left gets the pack topped up from unseen warm-up photos that are in no free folder.
   if (vip && rest.length < count) rest = [...rest, ...(pool.vipExtra ?? []).filter((p) => !h.seen.has(p.uuid) && !h.offeredBefore.has(p.uuid))];
   if (!previews.length || rest.length < count) return null;
   // Never offered first; photos offered before and never bought only to fill the pack (owner, 26 Nov 2026).

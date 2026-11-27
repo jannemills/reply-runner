@@ -319,6 +319,21 @@ export function withPaymentHold(notes, reason, nowMs = Date.now()) {
   return withOwn(notes, lines.join("\n"));
 }
 
+// Owner, 28 Nov 2026 ("if we send same photos and user complain we should say oh sorry i forgot and send other photos"): those other
+// photos are free, so they go at most once per REPLACEMENT_GAP_MS and cannot be collected by repeating the complaint.
+const REPLACEMENT_LINE = "Replacement photos:";
+export const REPLACEMENT_GAP_MS = 12 * 3600_000;
+export const replacementDue = (notes, now = Date.now()) => {
+  const line = splitNotes(notes).own.split("\n").find((l) => l.startsWith(REPLACEMENT_LINE));
+  const at = Number(/\[t=(\d+)\]/.exec(line ?? "")?.[1]);
+  return !at || now - at >= REPLACEMENT_GAP_MS;
+};
+export function withReplacement(notes, nowMs = Date.now()) {
+  const lines = splitNotes(notes).own.split("\n").filter((l) => l && !l.startsWith(REPLACEMENT_LINE));
+  lines.push(`${REPLACEMENT_LINE} [t=${nowMs}]`);
+  return withOwn(notes, lines.join("\n"));
+}
+
 // The buyer reminder (review, 24 Nov 2026) is given at most once per BUYER_NUDGE_GAP_MS per fan, so a fan who is sad or tired is
 // not reminded on every reply. Kept in your part of his note.
 const NUDGE_LINE = "Buyer offer reminder:";
