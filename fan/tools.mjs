@@ -636,7 +636,7 @@ export class JobTools {
               : "a free photo first (send_photo kind free) if he has shown real interest, so the paid one can follow on his reaction";
           return refuse(
             `Not sent yet: you have written ${limit}+ messages to him since your last priced offer and the chat is still only words. Heat that is not turned into a sale now cools off. ` +
-              `If he is warm (flirting, a compliment on your looks or body, anything sexual, "I want you", "I miss you", asking about you with interest), send ${step} NOW, before any send_reply, with your line as its caption (27 Nov 2026: 29 of 29 times the line went out first and the photo never followed). Only if the photo is refused, send_reply with words. ` +
+              `If he is warm (flirting, a compliment on your looks or body, anything sexual, "I want you", "I miss you", asking about you with interest), send ${step} NOW, before any send_reply, with your line as its caption. Only if the photo is refused, send_reply with words. ` +
               "If he is sad, worried, tired or saying goodnight, just call send_reply again with your line and stay warm.",
           );
         }
