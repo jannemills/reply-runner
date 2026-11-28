@@ -23,8 +23,6 @@ export const LIVE_FAN_MINUTES = 15;
 export const FREE_PER_HOUR = 2;
 export const VIP_FREE_PER_HOUR = 3;
 const FREE_HOUR_MS = 60 * 60_000;
-// Review, 26 Nov 2026: a fan got $5 five minutes into a new chat. No paid offer in the first NEW_CHAT_MINUTES of a chat that just started.
-export const NEW_CHAT_MINUTES = 10;
 export const FORMAT_SWITCH_HOURS = 6;
 // Owner, 26 Nov 2026: "we should be able to send same ppv photos if they were not bought before": an unbought paid photo can be offered again after this.
 export const REOFFER_COOLDOWN_HOURS = 24;
@@ -299,13 +297,7 @@ export function photoRefusal(kind, h, now, priceUsd, rules, firstBuyer = false) 
       return `He got a free photo in the last ${rules.freePhotoDays} days. No new one yet.`;
     return null;
   }
-  // Review, 27 Nov 2026 (12 h, 0 sales): hot new fans who already had their free photos hit this block and the free cap at once, so nothing could
-  // go out and the reply said "patience" (soulful-equation-653 left). Once he has had a free photo and answered it, the paid step may follow (owner pattern).
-  const reacted = h.freePhotos > 0 && h.lastFreeAt && h.lastFanAt && h.lastFanAt > h.lastFreeAt;
-  // No dead end: with no free photo left for him, or when he raised paying himself, the paid step is always open.
-  const freeUsedUp = rules.freeBeforeFirstBuy != null && h.freePhotos >= rules.freeBeforeFirstBuy;
-  if (!h.bought && !reacted && !freeUsedUp && !h.payIntent && h.chatStartAt && now - h.chatStartAt < NEW_CHAT_MINUTES * 60_000)
-    return `This chat started ${Math.max(1, Math.round((now - h.chatStartAt) / 60_000))} min ago. No paid offer in the first ${NEW_CHAT_MINUTES} minutes: get to know him first (a free photo is fine to spark his interest; the paid one waits for a real sign of interest).`;
+  // Owner, 28 Nov 2026: no minimum chat age before the first paid offer (was 10 minutes, 26 Nov). Whether he is ready is the model's call.
   if (!Number.isInteger(priceUsd) || priceUsd < rules.minPriceUsd || priceUsd > rules.maxPriceUsd)
     return `Choose a whole-dollar price from ${rules.minPriceUsd} to ${rules.maxPriceUsd}.`;
   // Chat review, 14 Nov 2026: jumps of 20-50% right after a purchase sold 0 of 4. A single goes at most $5 (or 15%) above his last bought single.

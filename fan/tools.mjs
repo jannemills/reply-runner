@@ -256,8 +256,13 @@ const refuse = (text) => ({ text, isError: true });
 /**
  * Review, 24 Nov 2026 (evening): "evo nesto malo smelije" and "ovu pazi" went out with no photo attached. A line that announces a picture
  * ("evo ...", "ovu pazi", "look at this", "here is one") must not be sent as text when no photo went out in this reply.
+ * Review, 28 Nov 2026: also lines that hand something over ("here, this one's for you", "i kept it for you", a bare "for you 💋").
  */
-export const announcesPhoto = (text) =>
+const HANDS_OVER =
+  /\bthis one(?:'s|’s| is)?\s+(?:just |only )?for (?:you|u)(?=\s*(?:$|[^\p{L}\s]))|\bhere,?\s+(?:this|that|it)(?:'s|’s| is)?\s+(?:one(?:'s|’s| is)?\s+)?(?:just |only )?for (?:you|u)(?=\s*(?:$|[^\p{L}\s]))|\bi\s+(?:kept|saved|picked|chose)\s+(?:it|this(?: one)?|that one|one)\s+(?:just |only )?for (?:you|u)\b|^\s*(?:just )?for (?:you|u)(?=\s*(?:$|[^\p{L}\p{N}\s,.!?]))|(?<![\p{L}])ov[au]\s+(?:je\s+)?(?:samo\s+|bas\s+|baš\s+)?za tebe(?![\p{L}])|(?<![\p{L}])(?:[cč]uvala|sa[cč]uvala)\s+(?:sam\s+(?:je|ju|ovu)\s+|(?:je|ju|ovu)\s+)(?:samo\s+|bas\s+|baš\s+)?za tebe(?![\p{L}])|\best[ae] es para ti(?![\p{L}])|\bdie ist (?:nur )?f[uü]r dich(?![\p{L}])|(?<![\p{L}])questa [eè] per te(?![\p{L}])/iu;
+/**
+ */
+export const announcesPhoto = (text) => HANDS_OVER.test(String(text ?? "")) ||
   /\bevo\b[^.!?\n]{0,24}\b(nesto|nešto|slik\w*|foto\w*|jednu|ovu|ovo|ovaj|malo\s+smel\w*)|\bevo\b[^.!?\n]{0,24}(?:(?<![\p{L}])(?:jedn[aeu](?![\p{L}])|(?:jos|još)\s+(?:par|dve|dvije)(?![\p{L}])))|\bhere(?:'s| is)\s+another\b|\bovu\s+(pazi|vidi|gledaj)|\b(pazi|vidi|gledaj)\s+ovu\b|\b(look at|check out)\s+(this|that)\b|\bhere(?:'s| is)\s+(a|one|my|something)\s+(pic|photo|picture|selfie|one)\b|\bhere you go\b|\b(sending|sent)\s+you\s+(a|one|something)\b|(?:^|[^\p{L}])(?:šaljem|saljem|poslala sam)\s+ti\b|\bti je ova\b|\bov[aeo]\s+(ovdje|ovde|ovdi)\b/iu.test(String(text ?? ""));
 
 /** Review, 26 Nov 2026: stock lines that went word for word to 14+ fans in two days, none answered. */
@@ -830,10 +835,6 @@ export class JobTools {
   /** His sales history, with every photo he ever got from her counted as seen (never send one twice). */
   async #history(messages) {
     const history = salesHistory(messages, this.fanUuid, this.now(), this.rules);
-    // Review, 26 Nov 2026: when the whole chat fits in what was read, his first message is when the talk started (no offer in its first
-    // minutes). Automations sent on joining do not count: a fan joined at 08:05, first wrote at 12:43 and got $5 at 12:48.
-    const his = messages.filter((m) => m.sender.uuid === this.fanUuid).map((m) => Date.parse(m.sentAt)).filter(Boolean);
-    if (his.length && messages.length < SALES_HISTORY_MESSAGES) history.chatStartAt = Math.min(...his);
     history.freeHourLimit = this.vip ? VIP_FREE_PER_HOUR : FREE_PER_HOUR;
     history.vip = this.vip;
     history.thanks = this.thanks;
