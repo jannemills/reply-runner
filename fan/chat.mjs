@@ -9,6 +9,22 @@ const WELCOME = /^AUTOMATED_(NEW_(FOLLOWER|SUBSCRIBER|FREE_TRIAL)|RE_?SUBSCRIBED
 /** He followed, subscribed or came back in the last 48 hours (Fanvue's welcome automation says so): he is waiting right now (owner, 28 Nov 2026). */
 export const justJoined = (messages, now = Date.now()) => messages.some((m) => WELCOME.test(String(m.type ?? "")) && now - Date.parse(m.sentAt) < 48 * 3600_000);
 
+const RE_SUBSCRIBED = /^AUTOMATED_RE_?SUBSCRIBED/;
+/**
+ * When he subscribed again (ms), if that was in the last 48 hours and only automations and mass messages came after it; else 0.
+ * Owner, 28 Nov 2026: a silent re-subscriber gets a personal opener too, not just the automatic message.
+ */
+export function cameBackAt(newestFirst, now = Date.now()) {
+  for (const m of newestFirst) {
+    if (RE_SUBSCRIBED.test(String(m.type ?? ""))) {
+      const at = Date.parse(m.sentAt) || 0;
+      return now - at < 48 * 3600_000 ? at : 0;
+    }
+    if (!isAutomatedOrBroadcast(m)) return 0;
+  }
+  return 0;
+}
+
 /** True when the newest personal message came from the fan. */
 export const needsReply = (newestFirst, fanUuid) => newestPersonal(newestFirst)?.sender.uuid === fanUuid;
 

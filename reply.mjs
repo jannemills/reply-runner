@@ -3,7 +3,7 @@
 // Never print the job, the chat or Claude's output: this log is public.
 import { createApi } from "./fan/api.mjs";
 import { FALLBACK, runAgent, runFilter } from "./fan/claude.mjs";
-import { answeredSince, freePhotoSince, herLastTypedAt, formatChat, isHandedOver, justJoined, lowSignalKind, needsReply, newCreatorMessages, newFanMessages, newestPersonal, reactedTo, researchNeedsReply, splitNotes, stillNewest, unansweredRuns } from "./fan/chat.mjs";
+import { answeredSince, cameBackAt, freePhotoSince, herLastTypedAt, formatChat, isHandedOver, justJoined, lowSignalKind, needsReply, newCreatorMessages, newFanMessages, newestPersonal, reactedTo, researchNeedsReply, splitNotes, stillNewest, unansweredRuns } from "./fan/chat.mjs";
 import { classifyPhoto, fanPhotoMessages } from "./fan/vision.mjs";
 import { startToolServer } from "./fan/mcp.mjs";
 import { JobTools, RESEARCH_TOOLS, TOOLS } from "./fan/tools.mjs";
@@ -149,16 +149,18 @@ if (jobRes.status === 404) {
     // is reached too, after the shorter silentQuietHours, so the welcome automation is not the last he hears from her.
     const quietMs = newest ? Date.now() - Date.parse(newest.sentAt) : 0;
     const quietNeededHours = hasWritten ? job.reengage?.quietHours : job.reengage?.silentQuietHours;
-    // A joiner opener (job.manual, he never wrote) goes only into a chat where she has sent nothing personal yet.
-    const joinerTaken = !!job.manual && !hasWritten && messages.some((m) => m.sender.uuid !== fanUuid && !String(m.type ?? "").startsWith("AUTOMATED") && m.type !== "BROADCAST");
+    // He subscribed again and nothing personal has followed (owner, 28 Nov 2026): what she wrote before that does not count.
+    const backAt = job.reengage ? cameBackAt(messages) : 0;
+    // An opener (new joiner or re-subscriber) goes only into a chat with no personal message from either side since he joined or came back.
+    const openerTaken = !!job.opener && messages.some((m) => !String(m.type ?? "").startsWith("AUTOMATED") && m.type !== "BROADCAST" && (Date.parse(m.sentAt) || 0) > backAt);
     const reengage =
-      !wrote && !thanks && !reaction && !engaged && !!job.reengage && !!newest && newest.sender.uuid !== fanUuid && !joinerTaken &&
+      !wrote && !thanks && !reaction && !engaged && !!job.reengage && !!newest && newest.sender.uuid !== fanUuid && !openerTaken &&
       quietNeededHours > 0 && quietMs >= quietNeededHours * 3600_000;
     const followUp = !thanks && !reaction && !engaged && !reengage && !!job.followUpAfter && stillNewest(messages, job.followUpAfter);
     if (!wrote && !followUp && !thanks && !reaction && !engaged && !reengage) return void (await post("", { done: true, skipped: "answered" })); // someone answered him by hand
     // Chat review, 14 Nov 2026: at most two unanswered messages in a row from her before he writes again (a check-in the owner asked for still goes).
     const ownerAsked = !!job.reengage && job.reengage.quietHours < 0.1;
-    if ((followUp || reengage) && !ownerAsked && unansweredRuns(messages, fanUuid) >= (reengage && quietMs >= 2 * 86_400_000 ? MAX_UNANSWERED_WINBACK : MAX_UNANSWERED_RUNS))
+    if ((followUp || reengage) && !ownerAsked && !(reengage && backAt) && unansweredRuns(messages, fanUuid) >= (reengage && quietMs >= 2 * 86_400_000 ? MAX_UNANSWERED_WINBACK : MAX_UNANSWERED_RUNS))
       return void (await post("", { done: true, skipped: "answered" }));
 
     if (reengage || (!!engaged && !hasWritten)) {
@@ -184,7 +186,7 @@ if (jobRes.status === 404) {
       ...(thanks ? { thanks } : {}),
       ...(reaction ? { reaction } : {}),
       ...(engaged ? { engaged } : {}),
-      ...(reengage ? { reengageDays: Math.max(1, Math.round(quietMs / 86_400_000)), ...(hasWritten ? {} : { neverWrote: true }) } : {}),
+      ...(reengage ? { reengageDays: Math.max(1, Math.round(quietMs / 86_400_000)), ...(hasWritten ? {} : { neverWrote: true }), ...(backAt ? { cameBack: true } : {}) } : {}),
     };
     // Owner, 22 Nov 2026 (replies within a minute): the safety filter, his lists and his notes load in parallel; the prompt is fetched only after the filter passes.
     const usaP = job.usaListUuid ? api.fanLists(fanUuid).catch(() => []) : Promise.resolve([]);
@@ -227,7 +229,7 @@ if (jobRes.status === 404) {
       fanUuid,
       newestUuid: newestPersonal(messages)?.uuid,
       followUp: followUp || reengage || (!!engaged && !hasWritten), // no photos in these...
-      freeHook: (reengage || !!engaged) && !hasWritten, // ...except one free photo or selfie as the hook for a fan who never wrote (owner, 28 Nov 2026)
+      freeHook: ((reengage || !!engaged) && !hasWritten) || (reengage && !!backAt), // ...except one free photo or selfie as the hook for a fan who never wrote or just came back (owner, 28 Nov 2026)
       thanks,
       tipGift: thanks && !job.tip?.purchase, // a tip, not a purchase: the thank-you may carry free photos (owner, 19 Nov 2026; free stock only since 28 Nov)
       noSale: !!job.noSale,

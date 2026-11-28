@@ -81,6 +81,10 @@ if (res.status === 404) {
     result.joiners = allFans
       .filter((f) => f.createdAt && Date.now() - f.createdAt < 48 * 3600_000 && !f.lastByFan && !excluded.has(f.uuid) && inScope(f.uuid) && !skip.has(f.uuid) && !(ctx.ignoreListUuid && f.lists.includes(ctx.ignoreListUuid)))
       .map((f) => f.uuid);
+    // Owner, 28 Nov 2026: someone who subscribed again and stayed silent gets a personal opener too (once per re-subscription).
+    result.returned = allFans
+      .filter((f) => /^AUTOMATED_RE_?SUBSCRIBED/.test(f.lastType) && Date.now() - f.lastAt < 48 * 3600_000 && !excluded.has(f.uuid) && inScope(f.uuid) && !skip.has(f.uuid) && !(ctx.ignoreListUuid && f.lists.includes(ctx.ignoreListUuid)))
+      .map((f) => ({ fan: f.uuid, at: f.lastAt }));
     if (ctx.usaListUuid) result.english = allFans.filter((f) => f.lists.includes(ctx.usaListUuid)).map((f) => f.uuid); // owner, 15 Nov 2026: English speakers have no quiet hours
     if (ctx.ignoreListUuid) result.ignored = allFans.filter((f) => f.lists.includes(ctx.ignoreListUuid)).map((f) => f.uuid);
     // 16 Nov 2026: these two used to come after the test-list add below; the test list was gone (404 on every sweep), so the
