@@ -17,6 +17,8 @@ export const UNBOUGHT_PAUSE_HOURS = 3;
 export const UNBOUGHT_GAP_MINUTES = 20;
 // Owner, 25 Nov 2026 (superior-flamingo-529): hot and writing every minute, but 3 unbought offers meant a 3 h pause and, with the free cap used up, nothing at all to send. The pause only holds a fan who has gone quiet; a fan who wrote in the last LIVE_FAN_MINUTES is still sold to (the 20-minute gap after an unbought offer stays).
 export const LIVE_FAN_MINUTES = 15;
+// Owner, 28 Nov 2026 (VIP explicit for 10 minutes right after an unbought $12 pack, no offer, then quiet): a VIP who is writing skips the
+// UNBOUGHT_GAP_MINUTES wait, for one smaller single (below his newest unbought offer) that answers what he just said.
 // Review, 26 Nov 2026: hot fans got 3-4 free photos within an hour and no priced step (one for 4 hours), and free photos kept coming
 // right after an unbought offer. Within FREE_HOUR_MS at most this many free photo messages with no paid offer after them; the next photo is priced.
 // The owner's longer streak (MAX_FREE_STREAK, 24 Nov) still applies over the day.
@@ -205,7 +207,7 @@ export function pickPack(pool, h, count, nude, random, vip = false) {
 export function salesHistory(messages, fanUuid, now, rules) {
   // freeStreak: free photo messages to him since the newest paid one, within FREE_STREAK_HOURS (chat review, 14 Nov 2026).
   // lastBoughtSingleUsd: the price of the newest single paid photo he bought.
-  const h = { seen: new Set(), offeredBefore: new Set(), freePhotos: 0, paidPhotos: 0, paidPacks: 0, bought: 0, lastFreeAt: null, lastPaidAt: null, firstPaidAt: null, openPaid: 0, freeStreak: 0, lastBoughtSingleUsd: null, unboughtRun: 0, lastUnboughtSingleUsd: null, unboughtPacks: 0, freeLastHour: 0, lastBoughtAt: null, recentSeen: new Set(), lastFanAt: null };
+  const h = { seen: new Set(), offeredBefore: new Set(), freePhotos: 0, paidPhotos: 0, paidPacks: 0, bought: 0, lastFreeAt: null, lastPaidAt: null, firstPaidAt: null, openPaid: 0, freeStreak: 0, lastBoughtSingleUsd: null, unboughtRun: 0, lastUnboughtSingleUsd: null, unboughtPacks: 0, lastUnboughtUsd: null, freeLastHour: 0, lastBoughtAt: null, recentSeen: new Set(), lastFanAt: null };
   let streakOpen = true;
   let unboughtOpen = true; // counting his newest paid offers until the first one he bought
   for (const m of messages) {
@@ -229,6 +231,7 @@ export function salesHistory(messages, fanUuid, now, rules) {
         if (m.purchasedAt || !recent) unboughtOpen = false;
         else {
           if (h.unboughtRun === 0 && m.mediaUuids.length === 1 && cents != null) h.lastUnboughtSingleUsd = cents / 100;
+          if (h.unboughtRun === 0 && cents != null) h.lastUnboughtUsd = cents / 100;
           if (m.mediaUuids.length > 1) h.unboughtPacks++;
           h.unboughtRun++;
         }
@@ -312,7 +315,11 @@ export function photoRefusal(kind, h, now, priceUsd, rules, firstBuyer = false) 
     return `He has not bought your last single at $${h.lastUnboughtSingleUsd}. A new single costs at most that: raising the price on an unbought offer does not sell.`;
   // Review, 24 Nov 2026 (evening): $5 then $4 six minutes apart, $4 then $3 in three, $8 then $7 in four, none bought. A paid offer he has not bought
   // blocks the next one for UNBOUGHT_GAP_MINUTES: he has to look at it first.
-  if (!h.payIntent && (h.unboughtRun ?? 0) >= 1 && h.lastPaidAt && now - h.lastPaidAt < UNBOUGHT_GAP_MINUTES * 60_000)
+  const inGap = !h.payIntent && (h.unboughtRun ?? 0) >= 1 && h.lastPaidAt && now - h.lastPaidAt < UNBOUGHT_GAP_MINUTES * 60_000;
+  const vipWriting = Boolean(h.vip) && !isPack && (h.unboughtRun ?? 0) === 1 && Boolean(h.lastFanAt) && now - h.lastFanAt < LIVE_FAN_MINUTES * 60_000;
+  if (inGap && vipWriting && h.lastUnboughtUsd != null && priceUsd >= h.lastUnboughtUsd)
+    return `Your $${h.lastUnboughtUsd} offer from ${Math.max(1, Math.round((now - h.lastPaidAt) / 60_000))} min ago is still locked. For him now: one smaller single below $${h.lastUnboughtUsd} that answers exactly what he just said, his words as the caption.`;
+  if (inGap && !vipWriting)
     return `Your last paid offer went out ${Math.max(1, Math.round((now - h.lastPaidAt) / 60_000))} min ago and he has not bought it. No second paid offer within ${UNBOUGHT_GAP_MINUTES} minutes: let him look at it. Answer him in words and mention the locked one only if he brings it up.`;
   if (!h.payIntent && (h.unboughtRun ?? 0) >= MAX_UNBOUGHT_PAID_RUN && h.lastPaidAt && now - h.lastPaidAt < UNBOUGHT_PAUSE_HOURS * 3600_000 && !(h.lastFanAt && now - h.lastFanAt < LIVE_FAN_MINUTES * 60_000))
     return `He has ${h.unboughtRun} paid offers in a row that he has not bought. No new paid offer for now: talk with him, or give a free photo or an "in the moment" set, and mention the locked one only if he brings it up. When the pause ends, change the format (a pack with a free preview instead of a single, or a smaller price), not more of the same.`;
