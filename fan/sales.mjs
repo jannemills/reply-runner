@@ -294,7 +294,7 @@ export function photoRefusal(kind, h, now, priceUsd, rules, firstBuyer = false) 
   if (kind === "free" && h.freeLastHour >= (h.freeHourLimit ?? FREE_PER_HOUR))
     return `He has had ${h.freeLastHour} free photos in the last hour with no paid offer after them. No more free ones now: if he is warm, this photo is the priced step (send_photo kind paid or send_ppv_pack, his own words as the caption). If a paid offer is refused too, answer in words only.`;
   if (kind === "free" && !h.thanks && (h.unboughtRun ?? 0) >= 1 && h.lastPaidAt && now - h.lastPaidAt < FREE_AFTER_UNBOUGHT_MINUTES * 60_000)
-    return `Your paid offer from ${Math.max(1, Math.round((now - h.lastPaidAt) / 60_000))} min ago is still locked. No free photo now: a free one next to it teaches him to wait. Answer him in words and tease what is in the locked one, without describing it.`;
+    return `Your paid offer from ${Math.max(1, Math.round((now - h.lastPaidAt) / 60_000))} min ago is still locked. No free photo now: a free one next to it teaches him to wait. Answer what he said in words; mention the locked one at most once, and never again after you already pointed him to it.`;
   if (kind === "free") {
     if (h.lastFreeAt && now - h.lastFreeAt < rules.freePhotoDays * DAY_MS)
       return `He got a free photo in the last ${rules.freePhotoDays} days. No new one yet.`;
@@ -437,6 +437,43 @@ export function freeTalkRun(messagesNewestFirst, fanUuid) {
   }
   return n;
 }
+
+// Sales check, 28 Nov 2026 (15 h review): a hot $0 fan asked "what did you send me?" and "what can I see?" four times after a locked $5
+// single and got four lines about the locked one ("it's locked, unlock it when you're ready") in five minutes, and nothing he could buy.
+// The prompt has forbidden this since 13 Nov, so the check is in code, from counts only (no word lists).
+export const STALL_MAX_HOURS = 6;
+export const STALL_MIN_FAN = 2;
+export const STALL_MIN_HER = 2;
+export const STALL_MAX_HER = 4; // after this many word-only answers the check stops, so a quiet chat is never refused forever
+
+/**
+ * Her newest one-to-one photo message is a paid offer he has not bought, and since then only words passed: how many messages he wrote
+ * and how many text-only lines she answered with. Null when that is not the case (a purchase, a newer free photo, or an old offer).
+ */
+export function lockedStall(messagesNewestFirst, fanUuid, now) {
+  let fan = 0;
+  let her = 0;
+  for (const m of messagesNewestFirst) {
+    if (m.sender.uuid === fanUuid) {
+      fan++;
+      continue;
+    }
+    if (m.type !== "SINGLE_RECIPIENT") continue;
+    if (!m.mediaUuids?.length) {
+      her++;
+      continue;
+    }
+    if (!m.pricing || m.purchasedAt) return null;
+    const at = Date.parse(m.sentAt) || 0;
+    const cents = m.pricing?.USD?.price;
+    if (cents == null || now - at > STALL_MAX_HOURS * 3600_000) return null;
+    return { fan, her, priceUsd: cents / 100, minutes: Math.max(1, Math.round((now - at) / 60_000)), pack: m.mediaUuids.length > 1 };
+  }
+  return null;
+}
+
+/** True when the stall is long enough to step in: he keeps writing and she keeps answering in words next to the locked offer. */
+export const stallDue = (s) => Boolean(s) && s.fan >= STALL_MIN_FAN && s.her >= STALL_MIN_HER && s.her <= STALL_MAX_HER;
 
 /**
  * Review, 24 Nov 2026 (12 hours): a past tipper chatted about 80 messages and a spender about 35 with no priced offer. Counts her

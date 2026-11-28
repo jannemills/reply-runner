@@ -25,7 +25,7 @@ import { replacementDue, withReplacement,
 } from "./chat.mjs";
 import { withTypo } from "./typo.mjs";
 import { MAX_VOICE_WORDS, speak, spokenText, voiceName, wordCount } from "./voice.mjs";
-import { isSelfieFolder, packRefusal, buildPool, poolForFan, isFirstBuyer, freeTalkRun, sincePaidRun, MAX_FREE_STREAK, VIP_MAX_FREE_STREAK, FREE_PER_HOUR, VIP_FREE_PER_HOUR, notBuyingRefusal, paidCandidates, photoRefusal, priceAnchorUsd, pickPack, pickPhoto, profileText, salesHistory, turnsAwayMoney, sendsHimAway, saysGoodbye, raisesPaying, saysCannotPay } from "./sales.mjs";
+import { isSelfieFolder, packRefusal, buildPool, poolForFan, isFirstBuyer, freeTalkRun, sincePaidRun, lockedStall, stallDue, MAX_FREE_STREAK, VIP_MAX_FREE_STREAK, FREE_PER_HOUR, VIP_FREE_PER_HOUR, notBuyingRefusal, paidCandidates, photoRefusal, priceAnchorUsd, pickPack, pickPhoto, profileText, salesHistory, turnsAwayMoney, sendsHimAway, saysGoodbye, raisesPaying, saysCannotPay } from "./sales.mjs";
 
 const none = { type: "object", properties: {}, additionalProperties: false };
 
@@ -667,6 +667,31 @@ export class JobTools {
         );
       }
       this.missedPhotoAsk = true;
+    }
+
+    // Sales check, 28 Nov 2026: next to a locked offer he did not open, he kept writing and she kept answering in words about the
+    // locked one. Once per job, while the stall is short (lockedStall/stallDue), and only when a smaller single may go out right now.
+    if (!this.photoSent && !this.photoTried && !this.followUp && !this.thanks && !this.noSale && !this.research && !this.stallNudged) {
+      const chat = await this.readChat(SALES_HISTORY_MESSAGES).catch(() => null);
+      const stall = chat ? lockedStall(chat, fanUuid, this.now()) : null;
+      if (stallDue(stall)) {
+        const notesNow = await api.getNotes(fanUuid).catch(() => null);
+        const history = await this.#history(chat);
+        history.paymentHold = paymentHold(notesNow, this.now());
+        const smaller = Math.floor(stall.priceUsd) - 1;
+        const allowed = smaller >= this.rules.minPriceUsd && !photoRefusal("paid", history, this.now(), smaller, this.rules, false);
+        if (allowed) {
+          this.stallNudged = true;
+          this.offerOwed = true;
+          return refuse(
+            `Not sent: your $${stall.priceUsd} ${stall.pack ? "pack" : "photo"} from ${stall.minutes} min ago is still locked, he has written ${stall.fan} messages since and you answered ${stall.her} times in words only. ` +
+              "Pointing at the locked one again does not sell; it never has. Do not mention it in this reply. " +
+              `If he is warm, curious or asks what it is or what he can see: send ONE new smaller single NOW (send_photo kind paid, $${smaller} or less, at least $${this.rules.minPriceUsd}) that answers exactly what he just said, his own words as the caption, then your line. ` +
+              "If he has never bought and seems unsure how unlocking works, you may also ask lightly, once, whether opening it works for him. " +
+              "If he is sad, tired, leaving or only telling you about his day, call send_reply again with a line that answers him and does not mention the locked one.",
+          );
+        }
+      }
     }
 
     // A fan who never paid must not get endless free text (owner, 15 Nov 2026: 14 hours of free sexting, no sale). After many text
